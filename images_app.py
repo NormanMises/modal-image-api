@@ -49,6 +49,7 @@ moss_image = (
     .add_local_file("images_api.py", remote_path="/root/images_api.py")
     .add_local_file("zimage_loader.py", remote_path="/root/zimage_loader.py")
     .add_local_file("moss_loader.py", remote_path="/root/moss_loader.py")
+    .add_local_file("comfy_moss_sampling.py", remote_path="/root/comfy_moss_sampling.py")
 )
 
 z_image_image = (

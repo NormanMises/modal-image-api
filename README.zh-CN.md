@@ -13,7 +13,10 @@
 
 观澜使用独立 L40S 容器及 `moss-image-sft-cache` Volume，底模为
 `OpenMOSS-Team/MOSS-Image-SFT`。底模固定到提交版本，LoRA 按 SHA256 校验后以强度 1
-合并，使用 50 步、CFG 3、`uncond_skip_layers=[22]`。宽高必须为正数且是 16 的倍数。
+合并，使用 25 步、CFG 3、ComfyUI `er_sde / simple`（Shift 5）。负面分支跳过第 22 层，
+生效范围为 ComfyUI 的噪声百分比 `0→0.5`；负面词为
+`worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
+宽高必须为正数且是 16 的倍数。
 模型组件按顺序搬到 GPU，容器空闲 120 秒后可缩容；首次请求需要下载底模。
 
 Mac 本地环境：
@@ -26,6 +29,18 @@ python3.12 -m venv .venv
 ```
 
 调用观澜时，把生成请求的 `model` 设置为 `kook-moss-guanlan`；API 地址和鉴权沿用现有服务。
+
+`comfy_moss_sampling.py` 改编自固定版本的 ComfyUI ER-SDE 与 simple 调度实现，
+该文件遵循 GPL-3.0，许可原文见 `third_party/licenses/ComfyUI-GPL-3.0.txt`。
+运行 `.venv/bin/python -m unittest test_moss_loader test_moss_sampling` 验证 CPU 逻辑。
+`compare_moss.py` 可用自备提示词文件渲染 4 组同种子对照图：
+
+```bash
+.venv/bin/modal run compare_moss.py --prompt-file prompt.txt --negative-file negative.txt
+```
+
+两边固定为 25 步、CFG 3、同一负面词和跳层区间，仅切换官方 Euler/官方调度与
+ComfyUI ER-SDE/simple；比较脚本的种子和附加负面词不会改变线上 API 默认值。
 
 服务提供：
 

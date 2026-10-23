@@ -13,7 +13,10 @@ Deploy a unified OpenAI-compatible image API on [Modal](https://modal.com/) serv
 
 Guanlan uses a separate L40S container and the `moss-image-sft-cache` volume.
 The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1;
-generation uses 50 steps, CFG 3, and `uncond_skip_layers=[22]`. Dimensions must
+generation uses 25 steps, CFG 3, and ComfyUI `er_sde / simple` with shift 5.
+Negative-branch layer 22 skipping is active over ComfyUI's sigma-based interval
+0–0.5. The negative prompt is `worst quality, bad anatomy, watermark, jpeg artifact`
+(without `nsfw`). Dimensions must
 be positive multiples of 16. Model CPU offload limits GPU memory use, and idle
 containers may scale down after 120 seconds. The first request downloads the base model.
 
@@ -27,6 +30,14 @@ python3.12 -m venv .venv
 ```
 
 Select `"model": "kook-moss-guanlan"` using the existing endpoint and API key.
+
+`comfy_moss_sampling.py` adapts ComfyUI's pinned ER-SDE and simple schedule code
+under GPL-3.0; see `third_party/licenses/ComfyUI-GPL-3.0.txt`. CPU checks:
+`.venv/bin/python -m unittest test_moss_loader test_moss_sampling`.
+For four matched seed pairs, run `modal run compare_moss.py --prompt-file prompt.txt
+--negative-file negative.txt`. Both presets use 25 steps, CFG 3, and identical
+negative prompts and SLG intervals; only sampler/schedule change. Comparison seeds
+and additional negative prompts do not affect the production API defaults.
 
 The service provides:
 
