@@ -2,17 +2,35 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Deploy a unified OpenAI-compatible image API on [Modal](https://modal.com/) serving three self-hosted image generation models:
+Deploy a unified OpenAI-compatible image API on [Modal](https://modal.com/) serving multiple self-hosted image generation models:
 
 | `model` id | Model | Backend |
 |---|---|---|
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image native PyTorch |
 | `dbz8-sda` | [Dark Beast DBZiT8 SDA@FOK](https://civarchive.com/models/2242173?modelVersionId=2774410) | Z-Image Turbo fine-tune (native) |
 | `flux.2-klein-9b` | [black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Diffusers pipeline |
+| `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
+
+Guanlan uses a separate L40S container and the `moss-image-sft-cache` volume.
+The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1;
+generation uses 50 steps, CFG 3, and `uncond_skip_layers=[22]`. Dimensions must
+be positive multiples of 16. Model CPU offload limits GPU memory use, and idle
+containers may scale down after 120 seconds. The first request downloads the base model.
+
+On macOS, use a local virtual environment:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install 'modal[api-proxy-support]' fastapi
+.venv/bin/modal token new
+.venv/bin/modal deploy images_app.py
+```
+
+Select `"model": "kook-moss-guanlan"` using the existing endpoint and API key.
 
 The service provides:
 
-- `GET /v1/models` — lists all three models
+- `GET /v1/models` — lists all registered models
 - `POST /v1/images/generations` — generates one image per request, returned as Base64 JSON
 - Model dispatch via the required `model` request field
 - OpenAI-standard error format: `{"error": {"message", "type", "param", "code"}}`
@@ -111,7 +129,7 @@ curl "$BASE_URL/images/generations" \
 
 The request fields are:
 
-- `model`: required, one of `z-image-turbo`, `dbz8-sda`, `flux.2-klein-9b`
+- `model`: required, one of `z-image-turbo`, `dbz8-sda`, `dbz6`, `flux.2-klein-9b`, `kook-moss-guanlan`
 - `prompt`: required text prompt
 - `size`: `WIDTHxHEIGHT`, default `1024x1024`
 - `response_format`: `b64_json`

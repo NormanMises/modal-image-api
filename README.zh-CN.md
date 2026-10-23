@@ -2,17 +2,34 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-在 [Modal](https://modal.com/) 上部署一个统一的、兼容 OpenAI Images API 的图片生成接口，内置三个自托管模型：
+在 [Modal](https://modal.com/) 上部署一个统一的、兼容 OpenAI Images API 的图片生成接口，支持多个自托管模型：
 
 | `model` id | 模型 | 后端 |
 |---|---|---|
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image 原生 PyTorch |
 | `dbz8-sda` | [Dark Beast DBZiT8 SDA@FOK](https://civarchive.com/models/2242173?modelVersionId=2774410) | Z-Image Turbo 微调（原生） |
 | `flux.2-klein-9b` | [black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Diffusers 管线 |
+| `kook-moss-guanlan` | [KOOK 观澜](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
+
+观澜使用独立 L40S 容器及 `moss-image-sft-cache` Volume，底模为
+`OpenMOSS-Team/MOSS-Image-SFT`。底模固定到提交版本，LoRA 按 SHA256 校验后以强度 1
+合并，使用 50 步、CFG 3、`uncond_skip_layers=[22]`。宽高必须为正数且是 16 的倍数。
+模型组件按顺序搬到 GPU，容器空闲 120 秒后可缩容；首次请求需要下载底模。
+
+Mac 本地环境：
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install 'modal[api-proxy-support]' fastapi
+.venv/bin/modal token new
+.venv/bin/modal deploy images_app.py
+```
+
+调用观澜时，把生成请求的 `model` 设置为 `kook-moss-guanlan`；API 地址和鉴权沿用现有服务。
 
 服务提供：
 
-- `GET /v1/models` —— 列出全部三个模型
+- `GET /v1/models` —— 列出全部模型
 - `POST /v1/images/generations` —— 每次请求生成一张图片，以 Base64 JSON 返回
 - 通过请求里的 `model` 字段分发到对应模型（必填）
 - OpenAI 标准错误格式：`{"error": {"message", "type", "param", "code"}}`
@@ -111,7 +128,7 @@ curl "$BASE_URL/images/generations" \
 
 请求字段：
 
-- `model`：必填，取 `z-image-turbo` / `dbz8-sda` / `flux.2-klein-9b` 之一
+- `model`：必填，取 `z-image-turbo` / `dbz8-sda` / `dbz6` / `flux.2-klein-9b` / `kook-moss-guanlan` 之一
 - `prompt`：必填的文本提示词
 - `size`：`WIDTHxHEIGHT`，默认 `1024x1024`
 - `response_format`：只支持 `b64_json`
