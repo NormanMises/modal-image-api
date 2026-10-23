@@ -18,7 +18,9 @@ Negative-branch layer 22 skipping is active over ComfyUI's sigma-based interval
 0–0.5. The negative prompt is `worst quality, bad anatomy, watermark, jpeg artifact`
 (without `nsfw`). Dimensions must
 be positive multiples of 16. Model CPU offload limits GPU memory use, and idle
-containers may scale down after 120 seconds. The first request downloads the base model.
+containers may scale down after 120 seconds. Invalid dimensions such as `941x1672`
+return HTTP 400 with `param: "size"` before GPU dispatch; `944x1680` is valid.
+The first request downloads the base model.
 
 On macOS, use a local virtual environment:
 

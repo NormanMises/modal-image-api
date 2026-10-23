@@ -17,6 +17,8 @@
 生效范围为 ComfyUI 的噪声百分比 `0→0.5`；负面词为
 `worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
 宽高必须为正数且是 16 的倍数。
+例如 `944x1680`、`1152x2048` 均合法；`941x1672` 不合法，会在调用 GPU 前返回
+HTTP 400，错误字段为 `param: "size"`。
 模型组件按顺序搬到 GPU，容器空闲 120 秒后可缩容；首次请求需要下载底模。
 
 Mac 本地环境：
