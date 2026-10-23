@@ -32,6 +32,24 @@ app = modal.App("images-api")
 
 z_image_cache = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 flux2_cache = modal.Volume.from_name("flux2-klein-9b-cache", create_if_missing=True)
+moss_cache = modal.Volume.from_name("moss-image-sft-cache", create_if_missing=True)
+
+moss_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .uv_pip_install(
+        "fastapi[standard]",
+        "torch==2.9.1",
+        "diffusers==0.38.0",
+        "transformers>=5.3,<6",
+        "accelerate>=1.10,<2",
+        "safetensors>=0.6,<1",
+        "Pillow>=10",
+    )
+    .env({"HF_HOME": CACHE_DIR, "TOKENIZERS_PARALLELISM": "false"})
+    .add_local_file("images_api.py", remote_path="/root/images_api.py")
+    .add_local_file("zimage_loader.py", remote_path="/root/zimage_loader.py")
+    .add_local_file("moss_loader.py", remote_path="/root/moss_loader.py")
+)
 
 z_image_image = (
     modal.Image.debian_slim(python_version="3.13")
@@ -160,8 +178,33 @@ class Flux2Klein9B:
         return [image_to_base64(image)]
 
 
+@app.cls(
+    image=moss_image,
+    gpu="L40S",
+    memory=65536,
+    volumes={CACHE_DIR: moss_cache},
+    timeout=1200,
+    scaledown_window=120,
+)
+@modal.concurrent(max_inputs=1)
+class KookMossGuanlan:
+    @modal.enter()
+    def load_model(self):
+        from moss_loader import MossBackend
+
+        self.backend = MossBackend(CACHE_DIR)
+        moss_cache.commit()
+
+    @modal.method()
+    def generate(self, prompt: str, width: int, height: int) -> list[str]:
+        return self.backend.generate(prompt, width, height)
+
+
 web_app = create_images_app(
     models={
+        "kook-moss-guanlan": lambda prompt, width, height: KookMossGuanlan().generate.remote.aio(
+            prompt=prompt, width=width, height=height
+        ),
         **{
             mid: (lambda prompt, width, height, cls=cls: cls().generate.remote.aio(
                 prompt=prompt, width=width, height=height
@@ -173,6 +216,7 @@ web_app = create_images_app(
         ),
     },
     metas={
+        "kook-moss-guanlan": ImagesMeta(model="kook-moss-guanlan", owned_by="KookYan"),
         **{spec.id: ImagesMeta(model=spec.id, owned_by=spec.owned_by) for spec in Z_IMAGE_MODELS},
         "flux.2-klein-9b": ImagesMeta(model="flux.2-klein-9b", owned_by="black-forest-labs"),
     },
