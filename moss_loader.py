@@ -95,8 +95,11 @@ class MossBackend:
         import torch
         from comfy_moss_sampling import sample_er_sde, simple_sigmas, uncond_skip_active
 
-        if width <= 0 or height <= 0 or width % 16 or height % 16:
-            raise ValueError("MOSS 图片宽高必须是正数且为 16 的倍数")
+        if width <= 0 or height <= 0:
+            raise ValueError("MOSS 图片宽高必须是正数")
+        requested_size = (width, height)
+        width = ((width + 15) // 16) * 16
+        height = ((height + 15) // 16) * 16
         if sampler not in {"er_sde", "official_euler"}:
             raise ValueError(f"未知 MOSS 采样方案: {sampler}")
         try:
@@ -140,6 +143,12 @@ class MossBackend:
                 image = self._decode_latents(latents)
         finally:
             self.pipe.maybe_free_model_hooks()
+        if requested_size != (width, height):
+            from PIL import Image, ImageOps
+
+            # Preserve the requested aspect ratio without stretching. Alignment
+            # adds at most 15 pixels per side; crop that small excess and resize.
+            image = ImageOps.fit(image, requested_size, method=Image.Resampling.LANCZOS)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return [base64.b64encode(buffer.getvalue()).decode("ascii")]

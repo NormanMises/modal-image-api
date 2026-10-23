@@ -16,10 +16,12 @@ The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength
 generation uses 25 steps, CFG 3, and ComfyUI `er_sde / simple` with shift 5.
 Negative-branch layer 22 skipping is active over ComfyUI's sigma-based interval
 0–0.5. The negative prompt is `worst quality, bad anatomy, watermark, jpeg artifact`
-(without `nsfw`). Dimensions must
-be positive multiples of 16. Model CPU offload limits GPU memory use, and idle
-containers may scale down after 120 seconds. Invalid dimensions such as `941x1672`
-return HTTP 400 with `param: "size"` before GPU dispatch; `944x1680` is valid.
+(without `nsfw`). Any positive integer dimensions are accepted. MOSS rounds its
+internal generation dimensions up to multiples of 16, then uses aspect-preserving
+cropping and resizing to return the exact requested dimensions without stretching.
+For example, `941x1672` generates internally at `944x1680` and returns `941x1672`.
+Aligned sizes pass through unchanged; non-positive sizes return HTTP 400 / `param: "size"`.
+Model CPU offload limits GPU memory use; idle containers may scale down after 120 seconds.
 The first request downloads the base model.
 
 On macOS, use a local virtual environment:

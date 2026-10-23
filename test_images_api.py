@@ -1,4 +1,4 @@
-"""Reject invalid model dimensions before GPU dispatch and preserve OpenAI errors."""
+"""Accept arbitrary positive dimensions and preserve OpenAI errors."""
 
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -18,14 +18,14 @@ class ImageSizeValidationTests(unittest.TestCase):
         self.client = TestClient(create_images_app(
             models={"moss": self.moss, "other": self.other},
             metas={
-                "moss": ImagesMeta("moss", "test", size_multiple=16),
+                "moss": ImagesMeta("moss", "test"),
                 "other": ImagesMeta("other", "test"),
             },
         ))
         self.headers = {"Authorization": "Bearer test-key"}
 
     def test_invalid_dimensions_return_400_without_gpu_call(self):
-        for size in ["941x1672", "944x1672", "0x1024", "-16x1024"]:
+        for size in ["0x1024", "-16x1024", "1024x0", "1024x-1"]:
             with self.subTest(size=size):
                 result = self.client.post("/v1/images/generations", headers=self.headers,
                     json={"model": "moss", "prompt": "test", "size": size})
@@ -33,7 +33,7 @@ class ImageSizeValidationTests(unittest.TestCase):
                 error = result.json()["error"]
                 self.assertEqual(error["type"], "invalid_request_error")
                 self.assertEqual(error["param"], "size")
-                self.assertIn("positive multiples of 16", error["message"])
+                self.assertIn("positive integers", error["message"])
         self.moss.assert_not_awaited()
 
     def test_aligned_dimensions_are_dispatched(self):
@@ -41,6 +41,12 @@ class ImageSizeValidationTests(unittest.TestCase):
             json={"model": "moss", "prompt": "test", "size": "944x1680"})
         self.assertEqual(result.status_code, 200)
         self.moss.assert_awaited_once_with("test", 944, 1680)
+
+    def test_unaligned_dimensions_reach_backend_for_automatic_alignment(self):
+        result = self.client.post("/v1/images/generations", headers=self.headers,
+            json={"model": "moss", "prompt": "test", "size": "941x1672"})
+        self.assertEqual(result.status_code, 200)
+        self.moss.assert_awaited_once_with("test", 941, 1672)
 
     def test_other_models_keep_their_own_validation(self):
         result = self.client.post("/v1/images/generations", headers=self.headers,

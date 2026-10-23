@@ -217,7 +217,7 @@ web_app = create_images_app(
         ),
     },
     metas={
-        "kook-moss-guanlan": ImagesMeta(model="kook-moss-guanlan", owned_by="KookYan", size_multiple=16),
+        "kook-moss-guanlan": ImagesMeta(model="kook-moss-guanlan", owned_by="KookYan"),
         **{spec.id: ImagesMeta(model=spec.id, owned_by=spec.owned_by) for spec in Z_IMAGE_MODELS},
         "flux.2-klein-9b": ImagesMeta(model="flux.2-klein-9b", owned_by="black-forest-labs"),
     },

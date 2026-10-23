@@ -75,7 +75,7 @@ class DownloadLoraTests(unittest.TestCase):
 
 
 class MossFlowAdapterTests(unittest.TestCase):
-    def test_comfy_sigmas_convert_to_official_training_timesteps(self):
+    def make_backend(self):
         from PIL import Image
 
         calls = []
@@ -96,7 +96,13 @@ class MossFlowAdapterTests(unittest.TestCase):
             encode_prompt=encode,
             maybe_free_model_hooks=Mock(),
         )
-        backend._decode_latents = Mock(return_value=Image.new("RGB", (16, 16)))
+        backend._decode_latents = Mock(side_effect=lambda latents: Image.new(
+            "RGB", (latents.shape[-1] * 16, latents.shape[-2] * 16)
+        ))
+        return backend, calls, encode
+
+    def test_comfy_sigmas_convert_to_official_training_timesteps(self):
+        backend, calls, encode = self.make_backend()
         result = backend.generate("test prompt", 16, 16, seed=42)
         self.assertEqual(len(result), 1)
         self.assertEqual(len(calls), 50)
@@ -106,6 +112,25 @@ class MossFlowAdapterTests(unittest.TestCase):
         self.assertEqual(encode.call_args_list[1].args, (MOSS_NEGATIVE_PROMPT,))
         self.assertNotIn("nsfw", MOSS_NEGATIVE_PROMPT.lower())
         backend.pipe.maybe_free_model_hooks.assert_called_once()
+
+    def test_unaligned_sizes_generate_on_grid_and_return_exact_requested_aspect(self):
+        import base64
+        from PIL import Image
+
+        cases = [
+            ((941, 1672), (944, 1680)),
+            ((1672, 941), (1680, 944)),
+            ((19, 17), (32, 32)),
+            ((1024, 1024), (1024, 1024)),
+        ]
+        for requested, native in cases:
+            with self.subTest(requested=requested):
+                backend, _, _ = self.make_backend()
+                result = backend.generate("test", *requested, seed=42)
+                latents = backend._decode_latents.call_args.args[0]
+                self.assertEqual((latents.shape[-1] * 16, latents.shape[-2] * 16), native)
+                image = Image.open(io.BytesIO(base64.b64decode(result[0])))
+                self.assertEqual(image.size, requested)
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@
 
 - `model` 为必填，取值见 `GET /v1/models`（`z-image-turbo` / `dbz8-sda` / `dbz6` / `flux.2-klein-9b` / `kook-moss-guanlan`）。
 - 每个请求固定生成一张图片；不传 `n`、`steps`、`quality` 或 `seed`。
-- `size` 为 `WIDTHxHEIGHT`，默认 `1024x1024`。MOSS 在 API 层先校验宽高为正数且为 16 的倍数，不合法返回 400 / `param=size`，避免启动 GPU；后端保留防御校验。其他模型维持各自校验。
+- `size` 为 `WIDTHxHEIGHT`，默认 `1024x1024`，宽高须为正整数。MOSS 内部将宽高向上对齐到 16 的倍数；生成后等比例裁边并缩放到原请求宽高，不拉伸。非正数在 API 层返回 400 / `param=size`。
 - `response_format` 只支持 `"b64_json"`，返回图片 Base64。
 - 错误响应为 OpenAI 标准格式：`{"error": {"message", "type", "param", "code"}}`；401 为 `authentication_error`，400 为 `invalid_request_error`，500 为 `server_error`。
 
