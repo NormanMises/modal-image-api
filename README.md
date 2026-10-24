@@ -23,11 +23,12 @@ The official API-export graph uses native loaders, text generation/encoding,
 `flux2-vae_small.safetensors`. The verified Guanlan LoRA is applied by the native
 `LoraLoaderModelOnly` node at strength 1.
 
-Template settings are retained: 25 steps, CFG 2.5, `er_sde / simple`, prompt
-enhancement enabled, and skip-layer guidance disabled. The negative prompt is
+The workflow uses 25 steps, CFG 3, and `er_sde / simple`. Skip-layer guidance is
+enabled for layer 22 over 0–0.5. Prompt enhancement is disabled; the original
+prompt goes directly to text encoding. The negative prompt is
 `worst quality, bad anatomy, watermark, jpeg artifact` (without `nsfw`). The sampling
-seed changes for each request. These are ComfyUI template settings, rather than
-the standalone OpenMOSS Python settings.
+seed changes for each request. CFG, skip-layer guidance, prompt enhancement,
+model precision, and LoRA loading customize the official ComfyUI template.
 Any positive integer dimensions are accepted. MOSS rounds its
 generation dimensions up to multiples of 16 and returns the complete native image,
 without cropping or resizing. The aspect ratio may change slightly due to alignment.

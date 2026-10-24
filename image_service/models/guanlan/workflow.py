@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import secrets
 
-from .config import LORA_STRENGTH, MODEL_FILES, MOSS_NEGATIVE_PROMPT
+from .config import CFG, ENABLE_PROMPT_ENHANCER, ENABLE_SLG, LORA_STRENGTH, MODEL_FILES, MOSS_NEGATIVE_PROMPT
 
 
 def load_workflow() -> dict:
@@ -17,6 +17,9 @@ def load_workflow() -> dict:
     workflow["18:3"]["inputs"]["vae_name"] = Path(MODEL_FILES[2]).name
     workflow["18:14"]["inputs"]["value"] = nodes[14]["widgets_values"][0]
     workflow["18:5"]["inputs"]["text"] = MOSS_NEGATIVE_PROMPT
+    workflow["18:7"]["inputs"]["cfg"] = CFG
+    workflow["18:16"]["inputs"]["switch"] = ENABLE_PROMPT_ENHANCER
+    workflow["18:24"]["inputs"]["switch"] = ENABLE_SLG
     workflow["18:lora"] = {
         "class_type": "LoraLoaderModelOnly",
         "inputs": {

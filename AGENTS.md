@@ -48,4 +48,4 @@
 - 涉及模型时验证加载、采样和尺寸处理；涉及部署时实际部署并做小尺寸线上验证。
 - 临时测试、对比、测量脚本和中间输出用完即删除，不提交；文档不保留已删除脚本的引用。
 - 不提交 `.env`、HF token、Modal token 或密钥。
-- 观澜使用固定版本 ComfyUI 和官方 image_moss_image_t2i.json 的原生节点图，禁用自定义节点。底模和 Qwen3.5-9B 编码器使用 BF16，VAE 使用 flux2-vae_small，原生 LoraLoaderModelOnly 加载观澜 LoRA（强度 1）。保持模板 25 步、CFG 2.5、er_sde/simple、开启提示词增强、关闭 SLG；负面词不含 nsfw。
+- 观澜使用固定版本 ComfyUI 和官方 image_moss_image_t2i.json 的原生节点图，禁用自定义节点。底模和 Qwen3.5-9B 编码器使用 BF16，VAE 使用 flux2-vae_small，原生 LoraLoaderModelOnly 加载观澜 LoRA（强度 1）。使用 25 步、CFG 3、er_sde/simple，开启第 22 层、0～0.5 范围的 SLG，关闭提示词增强；负面词不含 nsfw。

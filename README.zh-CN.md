@@ -21,9 +21,10 @@ MOSS-Image-SFT。ComfyUI 和[官方 `image_moss_image_t2i.json` 模板](https://
 VAE 保留模板的 `flux2-vae_small.safetensors`。观澜 LoRA 按 SHA256 校验后，通过原生
 `LoraLoaderModelOnly` 节点以强度 1 加载。
 
-保留模板的 25 步、CFG 2.5、`er_sde / simple`、开启提示词增强、关闭跳层引导。
+使用 25 步、CFG 3、`er_sde / simple`，开启第 22 层、0～0.5 范围的跳层引导。
+关闭提示词增强，原始提示词直接进入文本编码。
 负面词为 `worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
-每次请求更换采样种子。这是 ComfyUI 模板设置，与独立 OpenMOSS Python 管线的默认值不同。
+每次请求更换采样种子。在官方 ComfyUI 模板上调整了 CFG、跳层、提示词增强、模型精度和 LoRA 加载。
 宽高可以是任意正整数。MOSS 将宽高向上对齐到 16 的倍数，直接返回生成的完整图片，
 不裁切、不缩放；对齐可能使比例有轻微偏差。例如请求 `941x1672`，生成并返回
 `944x1680`；已经对齐的尺寸直接返回。非正数仍返回 HTTP 400 / `param: "size"`。

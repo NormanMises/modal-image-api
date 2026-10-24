@@ -23,3 +23,6 @@ LORA_URL = (
 )
 MOSS_NEGATIVE_PROMPT = "worst quality, bad anatomy, watermark, jpeg artifact"
 LORA_STRENGTH = 1.0
+CFG = 3.0
+ENABLE_SLG = True
+ENABLE_PROMPT_ENHANCER = False
