@@ -34,14 +34,6 @@ python3.12 -m venv .venv
 
 `comfy_moss_sampling.py` 改编自固定版本的 ComfyUI ER-SDE 与 simple 调度实现，
 该文件遵循 GPL-3.0，许可原文见 `LICENSE-ComfyUI.txt`。
-`compare_moss.py` 可用自备提示词文件渲染 4 组同种子对照图：
-
-```bash
-.venv/bin/modal run compare_moss.py --prompt-file prompt.txt --negative-file negative.txt
-```
-
-两边固定为 25 步、CFG 3、同一负面词和跳层区间，仅切换官方 Euler/官方调度与
-ComfyUI ER-SDE/simple；比较脚本的种子和附加负面词不会改变线上 API 默认值。
 
 服务提供：
 
