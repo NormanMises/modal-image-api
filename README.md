@@ -17,8 +17,11 @@ Included model integrations:
 Guanlan uses a separate L40S container and the `kook-moss-guanlan/` directory in the shared `image-model-cache` Volume.
 The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1.
 Generation calls the official OpenMOSS Python pipeline with 50 steps, CFG 3,
-flow-matching Euler, shift 5, an empty negative prompt, and negative-branch layer
-22 skipping throughout all steps. These match the [official SFT Python baseline](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings).
+flow-matching Euler, the official `MOSSImageScheduler` with shift 5, and
+negative-branch layer 22 skipping throughout all steps. Sampling follows the
+[official SFT Python baseline](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings),
+with the added negative prompt `worst quality, bad anatomy, watermark, jpeg artifact`
+(without `nsfw`).
 The API uses a random seed for each request and does not rewrite prompts.
 Any positive integer dimensions are accepted. MOSS rounds its
 generation dimensions up to multiples of 16 and returns the complete native image,

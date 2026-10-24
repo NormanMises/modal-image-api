@@ -19,4 +19,4 @@ MOSS_SHIFT = 5.0
 SKIP_LAYER = 22
 SKIP_START = 0.0
 SKIP_END = 1.0
-MOSS_NEGATIVE_PROMPT = ""
+MOSS_NEGATIVE_PROMPT = "worst quality, bad anatomy, watermark, jpeg artifact"

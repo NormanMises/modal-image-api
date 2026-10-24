@@ -47,4 +47,4 @@
 - 涉及模型时验证加载、采样和尺寸处理；涉及部署时实际部署并做小尺寸线上验证。
 - 临时测试、对比、测量脚本和中间输出用完即删除，不提交；文档不保留已删除脚本的引用。
 - 不提交 `.env`、HF token、Modal token 或密钥。
-- 观澜直接使用固定版本的 OpenMOSS 官方 Python 管线：50 步、CFG 3、Euler、shift 5、空负面词、全程负面分支跳过第 22 层。
+- 观澜使用固定版本的 OpenMOSS 官方 Python 管线：50 步、CFG 3、Euler、MOSSImageScheduler（shift 5）、全程负面分支跳过第 22 层。附加负面词为 worst quality, bad anatomy, watermark, jpeg artifact，不含 nsfw。

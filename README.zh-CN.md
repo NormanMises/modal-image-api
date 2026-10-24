@@ -14,8 +14,9 @@
 
 观澜使用独立 L40S 容器，权重放在共享 `image-model-cache` Volume 的 `kook-moss-guanlan/` 目录，底模为
 `OpenMOSS-Team/MOSS-Image-SFT`。底模固定版本，LoRA 按 SHA256 校验后以强度 1 合并。
-生成直接调用官方 Python 管线，使用 50 步、CFG 3、Flow-matching Euler、shift 5、
-空负面提示词，负面分支全程跳过第 22 层，采用[官方 SFT Python 基线](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings)。
+生成直接调用官方 Python 管线，使用 50 步、CFG 3、Flow-matching Euler、官方 `MOSSImageScheduler`（shift 5），
+负面分支全程跳过第 22 层，采样采用[官方 SFT Python 基线](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings)。
+额外添加负面词 `worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
 每次请求随机种子，不自动改写提示词。
 宽高可以是任意正整数。MOSS 将宽高向上对齐到 16 的倍数，直接返回生成的完整图片，
 不裁切、不缩放；对齐可能使比例有轻微偏差。例如请求 `941x1672`，生成并返回
