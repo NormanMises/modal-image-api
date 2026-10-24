@@ -13,10 +13,10 @@
 | `kook-moss-guanlan` | [KOOK 观澜](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 观澜使用独立 L40S 容器，权重放在共享 `image-model-cache` Volume 的 `kook-moss-guanlan/` 目录，底模为
-`OpenMOSS-Team/MOSS-Image-SFT`。底模固定到提交版本，LoRA 按 SHA256 校验后以强度 1
-合并，使用 25 步、CFG 3、ComfyUI `er_sde / simple`（Shift 5）。负面分支跳过第 22 层，
-生效范围为 ComfyUI 的噪声百分比 `0→0.5`；负面词为
-`worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
+`OpenMOSS-Team/MOSS-Image-SFT`。底模固定版本，LoRA 按 SHA256 校验后以强度 1 合并。
+生成直接调用官方 Python 管线，使用 50 步、CFG 3、Flow-matching Euler、shift 5、
+空负面提示词，负面分支全程跳过第 22 层，采用[官方 SFT Python 基线](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings)。
+每次请求随机种子，不自动改写提示词。
 宽高可以是任意正整数。MOSS 将宽高向上对齐到 16 的倍数，直接返回生成的完整图片，
 不裁切、不缩放；对齐可能使比例有轻微偏差。例如请求 `941x1672`，生成并返回
 `944x1680`；已经对齐的尺寸直接返回。非正数仍返回 HTTP 400 / `param: "size"`。
@@ -32,9 +32,6 @@ python3.12 -m venv .venv
 ```
 
 调用观澜时，把生成请求的 `model` 设置为 `kook-moss-guanlan`；API 地址和鉴权沿用现有服务。
-
-`image_service/models/guanlan/sampling.py` 改编自固定版本的 ComfyUI ER-SDE 与 simple 调度实现，
-该文件遵循 GPL-3.0，许可原文见 `LICENSE-ComfyUI.txt`。
 
 服务提供：
 
@@ -93,9 +90,9 @@ https://your-modal-app.modal.run/v1
 images_app.py                   # 部署入口：组合模型与 CPU API
 image_service/
   api.py                        # HTTP 输入、鉴权、错误和响应
-  contracts.py                  # 后端接口和模型元数据
+  contracts.py                  # ImageBackend 抽象接口和模型元数据
   registry.py                   # 元数据与生成函数统一注册
-  deployment.py                 # Modal App 组合和远程调用适配
+  deployment.py                 # ModelWorker 基类、App 组合和远程调用
   catalog.py                    # 启用的模型清单
   config.py                     # 通用 App 和鉴权 Secret 名称
   encoding.py                   # PNG / Base64 序列化
@@ -110,7 +107,6 @@ image_service/
       deployment.py
       backend.py
       lora.py                   # 下载、SHA256、严格 PEFT 合并
-      sampling.py               # ComfyUI ER-SDE / simple
 ```
 
 两个模型统一在各自 GPU 容器的启动钩子里加载，后续请求复用模型。API 镜像只安装
@@ -121,10 +117,13 @@ App、模型容器类和接口名称沿用原配置。
 
 1. 在 `image_service/models/<name>/` 添加 `__init__.py`、`config.py`、`backend.py`
    和 `deployment.py`。推理框架在后端加载或生成时导入。
-2. 实现 `generate(prompt, width, height) -> list[str]`，返回 Base64 PNG；序列化复用
-   `image_service.encoding.image_to_base64`。
-3. 在 `deployment.py` 定义独立 `modal.App`、镜像和 GPU 容器，并导出
-   `ModelDeployment(app, MODEL_INFO, Worker)`。容器类名须唯一；用 `with_source(image)`
+2. 后端继承 `image_service.contracts.ImageBackend`，实现统一接口：
+   `load(cache_dir: str) -> None` 和 `generate(prompt: str, width: int, height: int) -> list[str]`。
+   每个容器加载一次模型；生成返回 Base64 PNG，序列化复用 `image_service.encoding.image_to_base64`。
+3. 在 `deployment.py` 定义模型的 `modal.App` 和镜像。容器继承公共 `ModelWorker`，
+   设置 `cache_dir`，实现 `create_backend() -> ImageBackend`，在其中延迟导入并返回 `Backend()`。
+   基类统一负责启动加载、缓存提交和远程 `generate`，子类不重复实现这些方法。
+   导出 `ModelDeployment(app, MODEL_INFO, Worker)`。容器类名须唯一；用 `with_source(image)`
    打包本地代码。挂载 `image_service.storage.model_cache` 到 `CACHE_ROOT`，
    模型缓存路径使用公共配置的 `model_cache_dir(MODEL_INFO.id)`。每个 GPU 容器同时生成一张图，通过增加容器实现并行。
 4. 在 `image_service/catalog.py` 的 `MODEL_DEPLOYMENTS` 中注册。

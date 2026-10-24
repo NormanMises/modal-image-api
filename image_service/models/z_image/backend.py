@@ -2,28 +2,22 @@
 
 import os
 
+from ...contracts import ImageBackend
 from ...encoding import image_to_base64
-from .config import GUIDANCE, STEPS
+from .config import GUIDANCE, MODEL_REPO, STEPS, WEIGHTS_SUBDIR
 
 
-class ZImageBackend:
+class ZImageBackend(ImageBackend):
     """Z-Image-Turbo 的加载与生成后端。"""
 
-    def __init__(
-        self,
-        model_dir: str,
-        repo_id: str,
-        steps: int = STEPS,
-        guidance: float = GUIDANCE,
-    ):
+    def load(self, cache_dir: str) -> None:
         import torch
         from utils import ensure_model_weights, load_from_local_dir, set_attention_backend
 
-        self._steps = steps
-        self._guidance = guidance
-
         print("正在加载 base Z-Image-Turbo 组件...")
-        model_path = ensure_model_weights(model_dir, repo_id=repo_id, verify=False)
+        model_path = ensure_model_weights(
+            f"{cache_dir}/{WEIGHTS_SUBDIR}", repo_id=MODEL_REPO, verify=False
+        )
         self.components = load_from_local_dir(
             model_path,
             device="cuda",
@@ -46,8 +40,8 @@ class ZImageBackend:
             **self.components,
             height=height,
             width=width,
-            num_inference_steps=self._steps,
-            guidance_scale=self._guidance,
+            num_inference_steps=STEPS,
+            guidance_scale=GUIDANCE,
         )
         torch.cuda.empty_cache()
         return [image_to_base64(image_obj) for image_obj in images]

@@ -4,18 +4,19 @@
 
 - `images_app.py`：唯一部署入口，组合模型 App 与轻量 CPU API。
 - `image_service/api.py`：OpenAI Images 兼容 HTTP 接口、鉴权、参数校验、错误和响应。
-- `image_service/contracts.py`：模型元数据与后端 `generate(prompt, width, height) -> list[str]` 接口。
+- `image_service/contracts.py`：模型元数据与 `ImageBackend` 抽象接口：`load(cache_dir)`、`generate(prompt, width, height)`。
 - `image_service/registry.py`：元数据和生成函数统一注册；API 不依赖 Modal 或具体模型。
-- `image_service/deployment.py`：Modal 组合、代码打包和远程调用适配。
+- `image_service/deployment.py`：`ModelWorker` 公共容器基类、Modal 组合、代码打包和远程调用适配。
 - `image_service/catalog.py`：唯一的启用模型清单。
 - `image_service/config.py`：App 名称、共享鉴权 Secret 等通用服务配置。
 - `image_service/encoding.py`：PNG / Base64 序列化。
 - `image_service/storage.py`：唯一共享权重 Volume `image-model-cache`，挂载到 `/cache`，各模型使用 `/cache/<model_id>`。
-- `image_service/models/<name>/`：每个模型独立的 `config.py`、`deployment.py` 和 `backend.py`。观澜另有 LoRA 与采样模块。
+- `image_service/models/<name>/`：每个模型独立的 `config.py`、`deployment.py` 和 `backend.py`。观澜另有 LoRA 模块。
 
 新增模型只需新增模型目录并在 catalog 中注册，不改 API 或其他模型。模型配置放在对应
 `config.py`；镜像依赖、GPU 和容器生命周期放在对应 `deployment.py`。所有模型共用 storage 中的 Volume，不单独创建模型 Volume。
-所有模型均在各自容器启动钩子内导入后端并加载权重；禁止在包初始化或部署导入期间
+后端继承 `ImageBackend` 并实现相同签名的 load 和 generate；容器继承 `ModelWorker`，只设置 cache_dir 并实现 create_backend。
+所有模型均由公共容器启动钩子导入后端并加载权重；禁止在包初始化或部署导入期间
 加载 torch、diffusers 等推理依赖。`__init__.py` 保持轻量。
 
 ## 构建、调试与部署
@@ -46,4 +47,4 @@
 - 涉及模型时验证加载、采样和尺寸处理；涉及部署时实际部署并做小尺寸线上验证。
 - 临时测试、对比、测量脚本和中间输出用完即删除，不提交；文档不保留已删除脚本的引用。
 - 不提交 `.env`、HF token、Modal token 或密钥。
-- 观澜 `sampling.py` 改编自 ComfyUI，保留 GPL-3.0 归属和根目录 `LICENSE-ComfyUI.txt`。
+- 观澜直接使用固定版本的 OpenMOSS 官方 Python 管线：50 步、CFG 3、Euler、shift 5、空负面词、全程负面分支跳过第 22 层。

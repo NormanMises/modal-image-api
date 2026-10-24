@@ -15,11 +15,12 @@ Included model integrations:
 | `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 Guanlan uses a separate L40S container and the `kook-moss-guanlan/` directory in the shared `image-model-cache` Volume.
-The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1;
-generation uses 25 steps, CFG 3, and ComfyUI `er_sde / simple` with shift 5.
-Negative-branch layer 22 skipping is active over ComfyUI's sigma-based interval
-0–0.5. The negative prompt is `worst quality, bad anatomy, watermark, jpeg artifact`
-(without `nsfw`). Any positive integer dimensions are accepted. MOSS rounds its
+The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1.
+Generation calls the official OpenMOSS Python pipeline with 50 steps, CFG 3,
+flow-matching Euler, shift 5, an empty negative prompt, and negative-branch layer
+22 skipping throughout all steps. These match the [official SFT Python baseline](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings).
+The API uses a random seed for each request and does not rewrite prompts.
+Any positive integer dimensions are accepted. MOSS rounds its
 generation dimensions up to multiples of 16 and returns the complete native image,
 without cropping or resizing. The aspect ratio may change slightly due to alignment.
 For example, `941x1672` generates and returns `944x1680`.
@@ -38,9 +39,6 @@ python3.12 -m venv .venv
 ```
 
 Select `"model": "kook-moss-guanlan"` using the existing endpoint and API key.
-
-`image_service/models/guanlan/sampling.py` adapts ComfyUI's pinned ER-SDE and simple schedule code
-under GPL-3.0; see `LICENSE-ComfyUI.txt`.
 
 The service provides:
 
@@ -99,9 +97,9 @@ Each model uses `/cache/<model_id>` (for example, `/cache/z-image-turbo` and
 images_app.py                   # Deploy entry: compose models and the CPU API
 image_service/
   api.py                        # HTTP input, authentication, errors, responses
-  contracts.py                  # Backend interface and model metadata
+  contracts.py                  # ImageBackend abstract interface and metadata
   registry.py                   # Model metadata and callable in one registry
-  deployment.py                 # Shared Modal composition and remote-call adapter
+  deployment.py                 # ModelWorker base, App composition, remote calls
   catalog.py                    # Enabled model deployments
   config.py                     # Shared App and authentication Secret names
   encoding.py                   # PNG / Base64 serialization
@@ -116,7 +114,6 @@ image_service/
       deployment.py
       backend.py
       lora.py                   # Download, SHA256, strict PEFT merge
-      sampling.py               # ComfyUI ER-SDE / simple implementation
 ```
 
 Both backends load inside their own GPU container startup hook and reuse the model
@@ -128,10 +125,14 @@ Existing App, worker, and endpoint names remain stable.
 
 1. Add `image_service/models/<name>/` with an `__init__.py`, `config.py`, `backend.py`,
    and `deployment.py`. Keep inference imports inside backend loading/generation.
-2. Implement `generate(prompt, width, height) -> list[str]`, returning Base64 PNGs.
-   Use `image_service.encoding.image_to_base64` for serialization.
-3. In `deployment.py`, define an independent `modal.App`, image, and GPU worker,
-   and export `ModelDeployment(app, MODEL_INFO, Worker)`. Use a unique worker class
+2. Subclass `ImageBackend` from `image_service.contracts`. Implement
+   `load(cache_dir: str) -> None` and `generate(prompt: str, width: int, height: int) -> list[str]`.
+   Loading happens once per container; generation returns Base64 PNGs. Reuse
+   `image_service.encoding.image_to_base64` for serialization.
+3. In `deployment.py`, define the model's `modal.App` and image. Subclass the shared
+   `ModelWorker`, set `cache_dir`, and implement `create_backend() -> ImageBackend`
+   with a lazy import and `return Backend()`. The base provides startup loading,
+   cache commit, and the remote `generate` method. Export `ModelDeployment(app, MODEL_INFO, Worker)`. Use a unique worker class
    name and `with_source(image)` to include the local package. Limit each GPU
    container to one generation at a time; scale with more containers. Mount
    `image_service.storage.model_cache` at `CACHE_ROOT` and use `model_cache_dir(MODEL_INFO.id)`

@@ -4,7 +4,7 @@ import modal
 
 from ...config import CACHE_ROOT
 from ...contracts import ImageBackend
-from ...deployment import ModelDeployment, with_source
+from ...deployment import ModelDeployment, ModelWorker, with_source
 from ...storage import model_cache
 from .config import CACHE_DIR, MODEL_INFO
 
@@ -24,17 +24,13 @@ image = with_source(
 
 
 @app.cls(image=image, gpu="L40S", volumes={CACHE_ROOT: model_cache})
-class KookMossGuanlan:
-    @modal.enter()
-    def load_model(self):
+class KookMossGuanlan(ModelWorker):
+    cache_dir = CACHE_DIR
+
+    def create_backend(self) -> ImageBackend:
         from .backend import MossBackend
 
-        self.backend: ImageBackend = MossBackend(CACHE_DIR)
-        model_cache.commit()
-
-    @modal.method()
-    def generate(self, prompt: str, width: int, height: int) -> list[str]:
-        return self.backend.generate(prompt, width, height)
+        return MossBackend()
 
 
 deployment = ModelDeployment(app=app, info=MODEL_INFO, worker=KookMossGuanlan)
