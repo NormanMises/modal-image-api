@@ -33,7 +33,7 @@ python3.12 -m venv .venv
 调用观澜时，把生成请求的 `model` 设置为 `kook-moss-guanlan`；API 地址和鉴权沿用现有服务。
 
 `comfy_moss_sampling.py` 改编自固定版本的 ComfyUI ER-SDE 与 simple 调度实现，
-该文件遵循 GPL-3.0，许可原文见 `third_party/licenses/ComfyUI-GPL-3.0.txt`。
+该文件遵循 GPL-3.0，许可原文见 `LICENSE-ComfyUI.txt`。
 运行 `.venv/bin/python -m unittest test_moss_loader test_moss_sampling` 验证 CPU 逻辑。
 `compare_moss.py` 可用自备提示词文件渲染 4 组同种子对照图：
 

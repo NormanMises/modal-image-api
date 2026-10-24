@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Adapted from ComfyUI (Comfy-Org), commit bc5f880dbdd43e426077f42ccec53bb577ffee9f.
 # Source: comfy/k_diffusion/sampling.py and comfy/samplers.py.
-# License: third_party/licenses/ComfyUI-GPL-3.0.txt.
+# License: LICENSE-ComfyUI.txt.
 # Changes: specialize SNR helpers and model sampling to MOSS CONST flow;
 # accept a denoiser callable without ComfyUI's model-patcher object graph.
 """ComfyUI-compatible ER-SDE solver and simple schedule for MOSS-Image."""
