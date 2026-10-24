@@ -2,13 +2,10 @@
 
 - ``images_api.create_images_app`` 提供共享的 OpenAI Images 兼容 web 接口。
 - ``zimage_loader.ZImageBackend`` 封装 Z-Image 系列的加载/生成（含 ComfyUI checkpoint 注入）。
-- Z-Image 家族由 ``Z_IMAGE_MODELS`` spec 表驱动，工厂按 spec 生成各模型 cls；
-  FLUX.2 是异类（不同 image/volume/后端），保持显式 cls。
+- Z-Image 家族由 ``Z_IMAGE_MODELS`` spec 表驱动，工厂按 spec 生成各模型 cls。
 - 部署：``modal deploy images_app.py``
 """
 
-import base64
-import io
 from dataclasses import dataclass
 
 import modal
@@ -24,14 +21,11 @@ Z_IMAGE_DIR = f"{CACHE_DIR}/Z-Image-Turbo"
 DBZ_REPO = "GuangyuanSD/REDCraft-DarkBeast-Z-Image-TURBO"
 DBZ_FILENAME = "DarkBeast-ZImageTurbo/DarkBeastZ8-SDA@Fok-BF16-ComfyUI.safetensors"
 DBZ6_FILENAME = "DarkBeast-ZImageTurbo/DarkBeastZ6-BlitZ-BF16-ComfyUI.safetensors"
-FLUX2_REPO = "black-forest-labs/FLUX.2-klein-9B"
-FLUX2_STEPS = 4
 
 
 app = modal.App("images-api")
 
 z_image_cache = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
-flux2_cache = modal.Volume.from_name("flux2-klein-9b-cache", create_if_missing=True)
 moss_cache = modal.Volume.from_name("moss-image-sft-cache", create_if_missing=True)
 
 moss_image = (
@@ -72,32 +66,6 @@ z_image_image = (
     .add_local_file("images_api.py", remote_path="/root/images_api.py")
     .add_local_file("zimage_loader.py", remote_path="/root/zimage_loader.py")
 )
-
-flux2_image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .apt_install("git")
-    .uv_pip_install(
-        "fastapi[standard]",
-        "huggingface_hub[hf_xet]>=1.23.0",
-        "torch==2.8.0",
-        "torchvision==0.23.0",
-        "transformers>=5.9.0",
-        "accelerate==1.12.0",
-        "safetensors>=0.8.0",
-        "git+https://github.com/huggingface/diffusers.git",
-    )
-    .env(
-        {
-            "HF_HOME": CACHE_DIR,
-            "HF_HUB_CACHE": f"{CACHE_DIR}/hub",
-            "HF_XET_HIGH_PERFORMANCE": "1",
-            "TOKENIZERS_PARALLELISM": "false",
-        }
-    )
-    .add_local_file("images_api.py", remote_path="/root/images_api.py")
-    .add_local_file("zimage_loader.py", remote_path="/root/zimage_loader.py")
-)
-
 
 @dataclass(frozen=True)
 class ZModelSpec:
@@ -140,45 +108,6 @@ def make_zimage_cls(spec: ZModelSpec):
 Z_IMAGE_CLS = {spec.id: make_zimage_cls(spec) for spec in Z_IMAGE_MODELS}
 
 
-def image_to_base64(image) -> str:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
-@app.cls(
-    image=flux2_image,
-    gpu="L40S",
-    volumes={CACHE_DIR: flux2_cache},
-    secrets=[modal.Secret.from_name("flux2-hf")],
-)
-@modal.concurrent(max_inputs=1)
-class Flux2Klein9B:
-    @modal.enter()
-    def load_model(self):
-        import torch
-        from diffusers import Flux2KleinPipeline
-
-        self.pipe = Flux2KleinPipeline.from_pretrained(
-            FLUX2_REPO,
-            torch_dtype=torch.bfloat16,
-            cache_dir=CACHE_DIR,
-        )
-        self.pipe.to("cuda")
-        flux2_cache.commit()
-
-    @modal.method()
-    def generate(self, prompt: str, width: int, height: int) -> list[str]:
-        image = self.pipe(
-            prompt=prompt,
-            height=height,
-            width=width,
-            guidance_scale=1.0,
-            num_inference_steps=FLUX2_STEPS,
-        ).images[0]
-        return [image_to_base64(image)]
-
-
 @app.cls(
     image=moss_image,
     gpu="L40S",
@@ -212,14 +141,10 @@ web_app = create_images_app(
             ))
             for mid, cls in Z_IMAGE_CLS.items()
         },
-        "flux.2-klein-9b": lambda prompt, width, height: Flux2Klein9B().generate.remote.aio(
-            prompt=prompt, width=width, height=height
-        ),
     },
     metas={
         "kook-moss-guanlan": ImagesMeta(model="kook-moss-guanlan", owned_by="KookYan"),
         **{spec.id: ImagesMeta(model=spec.id, owned_by=spec.owned_by) for spec in Z_IMAGE_MODELS},
-        "flux.2-klein-9b": ImagesMeta(model="flux.2-klein-9b", owned_by="black-forest-labs"),
     },
 )
 

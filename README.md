@@ -8,7 +8,6 @@ Deploy a unified OpenAI-compatible image API on [Modal](https://modal.com/) serv
 |---|---|---|
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image native PyTorch |
 | `dbz8-sda` | [Dark Beast DBZiT8 SDA@FOK](https://civarchive.com/models/2242173?modelVersionId=2774410) | Z-Image Turbo fine-tune (native) |
-| `flux.2-klein-9b` | [black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Diffusers pipeline |
 | `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 Guanlan uses a separate L40S container and the `moss-image-sft-cache` volume.
@@ -50,9 +49,9 @@ The service provides:
 - A Modal account with GPU access
 - Modal CLI
 
-The local Python version only needs to be supported by the Modal CLI. The deployed containers use Python 3.13 (Z-Image models) and 3.12 (FLUX.2 Klein 9B) internally.
+The local Python version only needs to be supported by the Modal CLI. The deployed containers use Python 3.13 (Z-Image models) and 3.12 (MOSS) internally.
 
-Z-Image-Turbo and its fine-tunes are public and do not require a Hugging Face token. FLUX.2 Klein 9B is gated and needs the `flux2-hf` Secret containing your HF token.
+Z-Image-Turbo and its fine-tunes are public and do not require a Hugging Face token.
 
 ## Deploy
 
@@ -73,12 +72,6 @@ The Secret must contain `API_KEY`. Keep the real value out of Git and out of bro
 
 `API_KEY` is the key that API clients send in `Authorization: Bearer ...`. It is separate from your Modal login token.
 
-If you use the FLUX.2 model, also create a Secret for the HF token:
-
-```bash
-modal secret create flux2-hf HF_TOKEN=replace-with-your-hf-token
-```
-
 Deploy from the repository root:
 
 ```bash
@@ -91,12 +84,12 @@ Modal builds the runtime images from the `modal.Image` definitions in `images_ap
 https://your-modal-app.modal.run/v1
 ```
 
-The app stores model weights in Modal Volumes (`hf-hub-cache` for the Z-Image family, `flux2-klein-9b-cache` for FLUX.2). The first model load downloads the weights; later starts reuse the Volume.
+The app stores model weights in Modal Volumes (`hf-hub-cache` for the Z-Image family, `moss-image-sft-cache` for MOSS). The first model load downloads the weights; later starts reuse the Volume.
 
 ## Structure
 
 - `images_api.py` — shared OpenAI-compatible web interface (auth, OpenAI-standard errors, `/v1/models` and the generation route). `create_images_app(models, metas)` dispatches to a model by the `model` field.
-- `images_app.py` — the unified deployment entry. Defines the three model classes, each with its own image / volume / secret.
+- `images_app.py` — the unified deployment entry. Registers the model containers and configures their runtime images and cache volumes.
 
 ## Authentication
 
@@ -139,7 +132,7 @@ curl "$BASE_URL/images/generations" \
 
 The request fields are:
 
-- `model`: required, one of `z-image-turbo`, `dbz8-sda`, `dbz6`, `flux.2-klein-9b`, `kook-moss-guanlan`
+- `model`: required, one of `z-image-turbo`, `dbz8-sda`, `dbz6`, `kook-moss-guanlan`
 - `prompt`: required text prompt
 - `size`: `WIDTHxHEIGHT`, default `1024x1024`
 - `response_format`: `b64_json`
@@ -195,5 +188,4 @@ python -m py_compile images_api.py images_app.py
 
 - [Tongyi-MAI/Z-Image](https://github.com/Tongyi-MAI/Z-Image)
 - [Z-Image-Turbo model](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
-- [FLUX.2 Klein 9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B)
 - [Modal documentation](https://modal.com/docs)

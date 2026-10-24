@@ -8,7 +8,6 @@
 |---|---|---|
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image 原生 PyTorch |
 | `dbz8-sda` | [Dark Beast DBZiT8 SDA@FOK](https://civarchive.com/models/2242173?modelVersionId=2774410) | Z-Image Turbo 微调（原生） |
-| `flux.2-klein-9b` | [black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Diffusers 管线 |
 | `kook-moss-guanlan` | [KOOK 观澜](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 观澜使用独立 L40S 容器及 `moss-image-sft-cache` Volume，底模为
@@ -47,9 +46,9 @@ python3.12 -m venv .venv
 - 已开通 GPU 的 Modal 账号
 - Modal CLI
 
-本地 Python 版本只需要满足 Modal CLI 的要求。部署到 Modal 的远端运行镜像内部使用 Python 3.13（Z-Image 模型）和 3.12（FLUX.2 Klein 9B）。
+本地 Python 版本只需要满足 Modal CLI 的要求。部署到 Modal 的远端运行镜像内部使用 Python 3.13（Z-Image 模型）和 3.12（MOSS）。
 
-Z-Image-Turbo 及其微调模型是公开模型，不需要 Hugging Face token。FLUX.2 Klein 9B 是 gated 模型，需要 `flux2-hf` Secret 里的 HF token。
+Z-Image-Turbo 及其微调模型是公开模型，不需要 Hugging Face token。
 
 ## 部署
 
@@ -70,12 +69,6 @@ modal secret create z-image-api API_KEY=替换为一个较长的随机密钥
 
 `API_KEY` 就是客户端调用本 API 时放在 `Authorization: Bearer ...` 中的 key，与 Modal 登录 token 是两回事。
 
-如果使用 FLUX.2 模型，还需要创建存 HF token 的 Secret：
-
-```bash
-modal secret create flux2-hf HF_TOKEN=替换为你的-hf-token
-```
-
 在仓库根目录执行部署：
 
 ```bash
@@ -88,12 +81,12 @@ Modal 会根据 `images_app.py` 中的 `modal.Image` 定义构建运行镜像，
 https://your-modal-app.modal.run/v1
 ```
 
-模型权重保存在 Modal Volume 中（Z-Image 系列用 `hf-hub-cache`，FLUX.2 用 `flux2-klein-9b-cache`）。第一次加载模型时会下载权重，之后的新实例会复用 Volume 中的文件。
+模型权重保存在 Modal Volume 中（Z-Image 系列用 `hf-hub-cache`，MOSS 用 `moss-image-sft-cache`）。第一次加载模型时会下载权重，之后的新实例会复用 Volume 中的文件。
 
 ## 项目结构
 
 - `images_api.py` —— 共享的 OpenAI 兼容 web 接口（鉴权、OpenAI 标准错误、`/v1/models` 和生成路由）。`create_images_app(models, metas)` 按 `model` 字段分发到对应模型。
-- `images_app.py` —— 统一部署入口。定义三个模型类，各自挂不同的 image / volume / secret。
+- `images_app.py` —— 统一部署入口。注册模型容器，配置运行镜像和缓存 Volume。
 
 ## 认证
 
@@ -136,7 +129,7 @@ curl "$BASE_URL/images/generations" \
 
 请求字段：
 
-- `model`：必填，取 `z-image-turbo` / `dbz8-sda` / `dbz6` / `flux.2-klein-9b` / `kook-moss-guanlan` 之一
+- `model`：必填，取 `z-image-turbo` / `dbz8-sda` / `dbz6` / `kook-moss-guanlan` 之一
 - `prompt`：必填的文本提示词
 - `size`：`WIDTHxHEIGHT`，默认 `1024x1024`
 - `response_format`：只支持 `b64_json`
@@ -192,5 +185,4 @@ python -m py_compile images_api.py images_app.py
 
 - [Tongyi-MAI/Z-Image](https://github.com/Tongyi-MAI/Z-Image)
 - [Z-Image-Turbo 模型](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
-- [FLUX.2 Klein 9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B)
 - [Modal 文档](https://modal.com/docs)
