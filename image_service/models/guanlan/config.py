@@ -1,10 +1,10 @@
 """Guanlan identity, pinned weights, and generation defaults."""
 
+from ...config import model_cache_dir
 from ...contracts import ModelInfo
 
 MODEL_INFO = ModelInfo(id="kook-moss-guanlan", owned_by="KookYan")
-CACHE_DIR = "/cache"
-CACHE_VOLUME = "moss-image-sft-cache"
+CACHE_DIR = model_cache_dir(MODEL_INFO.id)
 MOSS_REPO = "OpenMOSS-Team/MOSS-Image-SFT"
 MOSS_REVISION = "f972bd4b4b9e3852133cc5da954d87bc32cd8fb9"
 LORA_REVISION = "f19ce490b7cee2c10700d44bda6bbbc8a3f0716d"

@@ -3,7 +3,7 @@
 [English](README.md) · [简体中文](README.zh-CN.md)
 
 在 [Modal](https://modal.com/) 上部署图像生成模型，统一提供兼容 OpenAI Images API 的接口。
-每个模型独立管理推理代码、运行依赖、GPU 配置和权重缓存；通过模型清单接入，复用公共 API 和部署入口。
+每个模型独立管理推理代码、运行依赖和 GPU 配置；权重共用一个 `image-model-cache` Volume，按模型分目录。通过模型清单接入，复用公共 API 和部署入口。
 
 预置模型：
 
@@ -12,7 +12,7 @@
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image 原生 PyTorch |
 | `kook-moss-guanlan` | [KOOK 观澜](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
-观澜使用独立 L40S 容器及 `moss-image-sft-cache` Volume，底模为
+观澜使用独立 L40S 容器，权重放在共享 `image-model-cache` Volume 的 `kook-moss-guanlan/` 目录，底模为
 `OpenMOSS-Team/MOSS-Image-SFT`。底模固定到提交版本，LoRA 按 SHA256 校验后以强度 1
 合并，使用 25 步、CFG 3、ComfyUI `er_sde / simple`（Shift 5）。负面分支跳过第 22 层，
 生效范围为 ComfyUI 的噪声百分比 `0→0.5`；负面词为
@@ -83,7 +83,9 @@ Modal 按各模型的 `deployment.py` 构建独立镜像；`images_app.py` 组�
 https://your-modal-app.modal.run/v1
 ```
 
-模型权重保存在 Modal Volume 中（Z-Image 系列用 `hf-hub-cache`，MOSS 用 `moss-image-sft-cache`）。第一次加载模型时会下载权重，之后的新实例会复用 Volume 中的文件。
+所有模型权重保存在同一个 `image-model-cache` Volume，挂载到 `/cache`。
+各模型使用 `/cache/<model_id>`，例如 `/cache/z-image-turbo` 和 `/cache/kook-moss-guanlan`。
+新容器直接复用已有权重。
 
 ## 项目结构
 
@@ -97,6 +99,7 @@ image_service/
   catalog.py                    # 启用的模型清单
   config.py                     # 通用 App 和鉴权 Secret 名称
   encoding.py                   # PNG / Base64 序列化
+  storage.py                    # 唯一共享权重 Volume
   models/
     z_image/
       config.py                 # 模型标识、固定版本、生成默认值
@@ -112,7 +115,7 @@ image_service/
 
 两个模型统一在各自 GPU 容器的启动钩子里加载，后续请求复用模型。API 镜像只安装
 FastAPI；GPU 镜像各自安装推理依赖。容器启动前的模块导入均不加载推理框架。
-App、模型容器类、接口和 Volume 名称沿用原配置。
+App、模型容器类和接口名称沿用原配置。
 
 ## 新增模型
 
@@ -120,9 +123,10 @@ App、模型容器类、接口和 Volume 名称沿用原配置。
    和 `deployment.py`。推理框架在后端加载或生成时导入。
 2. 实现 `generate(prompt, width, height) -> list[str]`，返回 Base64 PNG；序列化复用
    `image_service.encoding.image_to_base64`。
-3. 在 `deployment.py` 定义独立 `modal.App`、镜像、缓存和 GPU 容器，并导出
+3. 在 `deployment.py` 定义独立 `modal.App`、镜像和 GPU 容器，并导出
    `ModelDeployment(app, MODEL_INFO, Worker)`。容器类名须唯一；用 `with_source(image)`
-   打包本地代码。每个 GPU 容器同时生成一张图，通过增加容器实现并行。
+   打包本地代码。挂载 `image_service.storage.model_cache` 到 `CACHE_ROOT`，
+   模型缓存路径使用公共配置的 `model_cache_dir(MODEL_INFO.id)`。每个 GPU 容器同时生成一张图，通过增加容器实现并行。
 4. 在 `image_service/catalog.py` 的 `MODEL_DEPLOYMENTS` 中注册。
    模型列表、元数据和请求分发都取自这份注册表。
 5. 执行本地检查，再运行 `modal deploy images_app.py`。

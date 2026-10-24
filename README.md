@@ -3,7 +3,8 @@
 [English](README.md) · [简体中文](README.zh-CN.md)
 
 Deploy image generation models on [Modal](https://modal.com/) behind an OpenAI-compatible Images API.
-Each model owns its inference code, runtime dependencies, GPU settings, and weight cache.
+Each model owns its inference code, runtime dependencies, and GPU settings.
+Weights share one `image-model-cache` Volume, with a separate directory per model.
 Add models through the catalog while reusing the shared API and deployment entry.
 
 Included model integrations:
@@ -13,7 +14,7 @@ Included model integrations:
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image native PyTorch |
 | `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
-Guanlan uses a separate L40S container and the `moss-image-sft-cache` volume.
+Guanlan uses a separate L40S container and the `kook-moss-guanlan/` directory in the shared `image-model-cache` Volume.
 The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1;
 generation uses 25 steps, CFG 3, and ComfyUI `er_sde / simple` with shift 5.
 Negative-branch layer 22 skipping is active over ComfyUI's sigma-based interval
@@ -87,7 +88,9 @@ Modal builds each model image from its own `deployment.py`; `images_app.py` comp
 https://your-modal-app.modal.run/v1
 ```
 
-The app stores model weights in Modal Volumes (`hf-hub-cache` for the Z-Image family, `moss-image-sft-cache` for MOSS). The first model load downloads the weights; later starts reuse the Volume.
+All model weights live in one Modal Volume, `image-model-cache`, mounted at `/cache`.
+Each model uses `/cache/<model_id>` (for example, `/cache/z-image-turbo` and
+`/cache/kook-moss-guanlan`). Later containers reuse the cached weights.
 
 ## Structure
 
@@ -101,6 +104,7 @@ image_service/
   catalog.py                    # Enabled model deployments
   config.py                     # Shared App and authentication Secret names
   encoding.py                   # PNG / Base64 serialization
+  storage.py                    # One shared model-weight Volume
   models/
     z_image/
       config.py                 # Identity, source pin, generation defaults
@@ -117,7 +121,7 @@ image_service/
 Both backends load inside their own GPU container startup hook and reuse the model
 for later requests. The API image installs FastAPI only; each GPU image installs
 its own inference dependencies. All imports outside container startup are lightweight.
-Existing App, worker, endpoint, and Volume names remain stable.
+Existing App, worker, and endpoint names remain stable.
 
 ## Adding a model
 
@@ -125,10 +129,12 @@ Existing App, worker, endpoint, and Volume names remain stable.
    and `deployment.py`. Keep inference imports inside backend loading/generation.
 2. Implement `generate(prompt, width, height) -> list[str]`, returning Base64 PNGs.
    Use `image_service.encoding.image_to_base64` for serialization.
-3. In `deployment.py`, define an independent `modal.App`, image, cache, GPU worker,
+3. In `deployment.py`, define an independent `modal.App`, image, and GPU worker,
    and export `ModelDeployment(app, MODEL_INFO, Worker)`. Use a unique worker class
    name and `with_source(image)` to include the local package. Limit each GPU
-   container to one generation at a time; scale with more containers.
+   container to one generation at a time; scale with more containers. Mount
+   `image_service.storage.model_cache` at `CACHE_ROOT` and use `model_cache_dir(MODEL_INFO.id)`
+   from the shared config for the model's cache directory.
 4. Add the deployment to `MODEL_DEPLOYMENTS` in `image_service/catalog.py`.
    Metadata, `/v1/models`, and generation routing use that same registration.
 5. Run the local check and `modal deploy images_app.py`.
@@ -216,7 +222,7 @@ result = client.images.generate(
 
 The repository defines the Modal Images in Python and pins the Z-Image source dependency to a tested commit. Each Modal workspace builds the images from those definitions.
 
-The model weights stay in the Modal Volumes rather than in the images. This keeps image builds smaller and lets new containers reuse the cached weights.
+The model weights stay in the shared Modal Volume rather than in the images. This keeps image builds smaller and lets new containers reuse the cached weights.
 
 For other image workflows, see the [Modal existing images guide](https://modal.com/docs/guide/existing-images).
 

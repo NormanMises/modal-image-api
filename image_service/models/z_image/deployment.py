@@ -2,12 +2,13 @@
 
 import modal
 
+from ...config import CACHE_ROOT
 from ...contracts import ImageBackend
 from ...deployment import ModelDeployment, with_source
-from .config import CACHE_DIR, CACHE_VOLUME, MODEL_DIR, MODEL_INFO, MODEL_REPO, SOURCE_COMMIT
+from ...storage import model_cache
+from .config import CACHE_DIR, MODEL_DIR, MODEL_INFO, MODEL_REPO, SOURCE_COMMIT
 
 app = modal.App()
-cache = modal.Volume.from_name(CACHE_VOLUME, create_if_missing=True)
 image = with_source(
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("git")
@@ -22,7 +23,7 @@ image = with_source(
 )
 
 
-@app.cls(image=image, gpu="L40S", volumes={CACHE_DIR: cache})
+@app.cls(image=image, gpu="L40S", volumes={CACHE_ROOT: model_cache})
 @modal.concurrent(max_inputs=1)
 class ZImageTurboModel:
     @modal.enter()
@@ -30,7 +31,7 @@ class ZImageTurboModel:
         from .backend import ZImageBackend
 
         self.backend: ImageBackend = ZImageBackend(model_dir=MODEL_DIR, repo_id=MODEL_REPO)
-        cache.commit()
+        model_cache.commit()
 
     @modal.method()
     def generate(self, prompt: str, width: int, height: int) -> list[str]:

@@ -2,12 +2,13 @@
 
 import modal
 
+from ...config import CACHE_ROOT
 from ...contracts import ImageBackend
 from ...deployment import ModelDeployment, with_source
-from .config import CACHE_DIR, CACHE_VOLUME, MODEL_INFO
+from ...storage import model_cache
+from .config import CACHE_DIR, MODEL_INFO
 
 app = modal.App()
-cache = modal.Volume.from_name(CACHE_VOLUME, create_if_missing=True)
 image = with_source(
     modal.Image.debian_slim(python_version="3.12")
     .uv_pip_install(
@@ -26,7 +27,7 @@ image = with_source(
     image=image,
     gpu="L40S",
     memory=65536,
-    volumes={CACHE_DIR: cache},
+    volumes={CACHE_ROOT: model_cache},
     timeout=1200,
     scaledown_window=120,
 )
@@ -37,7 +38,7 @@ class KookMossGuanlan:
         from .backend import MossBackend
 
         self.backend: ImageBackend = MossBackend(CACHE_DIR)
-        cache.commit()
+        model_cache.commit()
 
     @modal.method()
     def generate(self, prompt: str, width: int, height: int) -> list[str]:

@@ -10,10 +10,11 @@
 - `image_service/catalog.py`：唯一的启用模型清单。
 - `image_service/config.py`：App 名称、共享鉴权 Secret 等通用服务配置。
 - `image_service/encoding.py`：PNG / Base64 序列化。
+- `image_service/storage.py`：唯一共享权重 Volume `image-model-cache`，挂载到 `/cache`，各模型使用 `/cache/<model_id>`。
 - `image_service/models/<name>/`：每个模型独立的 `config.py`、`deployment.py` 和 `backend.py`。观澜另有 LoRA 与采样模块。
 
 新增模型只需新增模型目录并在 catalog 中注册，不改 API 或其他模型。模型配置放在对应
-`config.py`；镜像依赖、GPU、Volume 和容器生命周期放在对应 `deployment.py`。
+`config.py`；镜像依赖、GPU 和容器生命周期放在对应 `deployment.py`。所有模型共用 storage 中的 Volume，不单独创建模型 Volume。
 所有模型均在各自容器启动钩子内导入后端并加载权重；禁止在包初始化或部署导入期间
 加载 torch、diffusers 等推理依赖。`__init__.py` 保持轻量。
 
@@ -23,7 +24,7 @@
 - Mac 命令：`.venv/bin/python` 和 `.venv/bin/modal`。
 - 语法检查：`.venv/bin/python -m compileall -q images_app.py image_service`
 - 部署：`.venv/bin/modal deploy images_app.py`
-- 保持 App `images-api`、函数 `fastapi_app` 以及现有容器类名和 Volume 名称稳定。
+- 保持 App `images-api`、函数 `fastapi_app` 以及现有容器类名稳定。
 - 每个 GPU 容器同时处理一次生成；通过多个容器实现请求并行。
 
 ## API 与 Secret
