@@ -153,6 +153,8 @@ def create_images_app(models: dict[str, Generate], metas: dict[str, ImagesMeta])
             raise invalid_request("prompt must be a non-empty string.", param="prompt")
 
         width, height = parse_size(payload.get("size"), metas[model_id].default_size)
+        if width <= 0 or height <= 0:
+            raise invalid_request("size width and height must be positive integers.", param="size")
 
         response_format = str(payload.get("response_format") or "b64_json")
         if response_format != "b64_json":

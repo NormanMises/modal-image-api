@@ -6,10 +6,12 @@ import hashlib
 import io
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import torch
 
-from moss_loader import download_lora, merge_lora
+from moss_loader import MOSS_NEGATIVE_PROMPT, MossBackend, download_lora, merge_lora
 
 
 class MergeLoraTests(unittest.TestCase):
@@ -70,6 +72,65 @@ class DownloadLoraTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     download_lora(cache)
             self.assertEqual(list(Path(cache).iterdir()), [])
+
+
+class MossFlowAdapterTests(unittest.TestCase):
+    def make_backend(self):
+        from PIL import Image
+
+        calls = []
+
+        class Transformer:
+            config = SimpleNamespace(latent_channels=4)
+
+            def __call__(self, x, timestep, embeds, mask, **kwargs):
+                calls.append((float(timestep[0]), kwargs))
+                return SimpleNamespace(sample=torch.zeros_like(x))
+
+        encode = Mock(return_value=(torch.zeros(1, 2, 4), torch.ones(1, 2, dtype=torch.bool)))
+        backend = MossBackend.__new__(MossBackend)
+        backend.pipe = SimpleNamespace(
+            _execution_device=torch.device("cpu"),
+            transformer=Transformer(),
+            scheduler=SimpleNamespace(config=SimpleNamespace(num_train_timesteps=1000)),
+            encode_prompt=encode,
+            maybe_free_model_hooks=Mock(),
+        )
+        backend._decode_latents = Mock(side_effect=lambda latents: Image.new(
+            "RGB", (latents.shape[-1] * 16, latents.shape[-2] * 16)
+        ))
+        return backend, calls, encode
+
+    def test_comfy_sigmas_convert_to_official_training_timesteps(self):
+        backend, calls, encode = self.make_backend()
+        result = backend.generate("test prompt", 16, 16, seed=42)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(calls), 50)
+        self.assertGreater(calls[0][0], 999)
+        self.assertLess(calls[0][0], 1000)
+        self.assertEqual(sum(bool(k.get("skip_layers")) for _, k in calls), 13)
+        self.assertEqual(encode.call_args_list[1].args, (MOSS_NEGATIVE_PROMPT,))
+        self.assertNotIn("nsfw", MOSS_NEGATIVE_PROMPT.lower())
+        backend.pipe.maybe_free_model_hooks.assert_called_once()
+
+    def test_unaligned_sizes_return_complete_native_image(self):
+        import base64
+        from PIL import Image
+
+        cases = [
+            ((941, 1672), (944, 1680)),
+            ((1672, 941), (1680, 944)),
+            ((19, 17), (32, 32)),
+            ((1024, 1024), (1024, 1024)),
+        ]
+        for requested, native in cases:
+            with self.subTest(requested=requested):
+                backend, _, _ = self.make_backend()
+                result = backend.generate("test", *requested, seed=42)
+                latents = backend._decode_latents.call_args.args[0]
+                self.assertEqual((latents.shape[-1] * 16, latents.shape[-2] * 16), native)
+                image = Image.open(io.BytesIO(base64.b64decode(result[0])))
+                self.assertEqual(image.size, native)
 
 
 if __name__ == "__main__":

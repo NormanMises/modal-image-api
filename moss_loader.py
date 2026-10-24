@@ -11,6 +11,9 @@ MOSS_REPO = "OpenMOSS-Team/MOSS-Image-SFT"
 MOSS_REVISION = "f972bd4b4b9e3852133cc5da954d87bc32cd8fb9"
 LORA_REVISION = "f19ce490b7cee2c10700d44bda6bbbc8a3f0716d"
 LORA_SHA256 = "52e41bc8ab3964b11104332bc7fc742571e5fd1eaf7bc046285a5b37c56d3020"
+MOSS_STEPS = 25
+MOSS_GUIDANCE = 3.0
+MOSS_NEGATIVE_PROMPT = "worst quality, bad anatomy, watermark, jpeg artifact"
 LORA_URL = (
     "https://modelscope.cn/api/v1/models/KookYan/Kook_Moss_SFT_guanlan/repo"
     f"?Revision={LORA_REVISION}&FilePath=KOOK-MOSS-SFT-%E8%A7%82%E6%BE%9C.safetensors"
@@ -82,24 +85,77 @@ class MossBackend:
         self.merged_layers = merge_lora(
             self.pipe.transformer, load_file(str(download_lora(cache_dir)))
         )
-        self.pipe.scheduler = type(self.pipe.scheduler).from_config(self.pipe.scheduler.config)
         # 文本编码器、DiT、VAE 按顺序上 GPU，避免同时驻留导致显存溢出。
         self.pipe.enable_model_cpu_offload()
 
-    def generate(self, prompt: str, width: int, height: int) -> list[str]:
+    def generate(
+        self, prompt: str, width: int, height: int, *, sampler: str = "er_sde", seed: int | None = None,
+        negative_prompt: str = MOSS_NEGATIVE_PROMPT,
+    ) -> list[str]:
         import torch
+        from comfy_moss_sampling import sample_er_sde, simple_sigmas, uncond_skip_active
 
-        if width <= 0 or height <= 0 or width % 16 or height % 16:
-            raise ValueError("MOSS 图片宽高必须是正数且为 16 的倍数")
-        with torch.inference_mode():
-            image = self.pipe(
-                prompt=prompt,
-                width=width,
-                height=height,
-                num_inference_steps=50,
-                guidance_scale=3.0,
-                uncond_skip_layers=[22],
-            ).images[0]
+        if width <= 0 or height <= 0:
+            raise ValueError("MOSS 图片宽高必须是正数")
+        # Generate directly on the supported grid and return the complete image.
+        width = ((width + 15) // 16) * 16
+        height = ((height + 15) // 16) * 16
+        if sampler not in {"er_sde", "official_euler"}:
+            raise ValueError(f"未知 MOSS 采样方案: {sampler}")
+        try:
+            with torch.inference_mode():
+                device = self.pipe._execution_device
+                positive, positive_mask = self.pipe.encode_prompt(prompt)
+                negative, negative_mask = self.pipe.encode_prompt(negative_prompt)
+                shape = (1, self.pipe.transformer.config.latent_channels, height // 16, width // 16)
+                # ComfyUI starts from CPU fp32 noise; subsequent ER-SDE noise uses the GPU.
+                generator = torch.Generator("cpu").manual_seed(seed) if seed is not None else None
+                latents = torch.randn(shape, dtype=torch.float32, device="cpu", generator=generator).to(device)
+
+                def denoise(x, sigma):
+                    # ComfyUI's flow t is 0..1, but the standalone MOSS transformer
+                    # consumes the training timestep 0..1000 (not normalized sigma).
+                    timestep = sigma * self.pipe.scheduler.config.num_train_timesteps
+                    cond = self.pipe.transformer(x, timestep, positive, positive_mask).sample.float()
+                    skip = {"skip_layers": [22]} if uncond_skip_active(sigma[0]) else {}
+                    uncond = self.pipe.transformer(
+                        x, timestep, negative, negative_mask, **skip
+                    ).sample.float()
+                    velocity = uncond + MOSS_GUIDANCE * (cond - uncond)
+                    return x - sigma.reshape(-1, 1, 1, 1) * velocity
+
+                if sampler == "er_sde":
+                    extra_args = {"seed": seed} if seed is not None else {}
+                    latents = sample_er_sde(
+                        lambda x, sigma, **_: denoise(x, sigma),
+                        latents,
+                        simple_sigmas(MOSS_STEPS).to(device),
+                        extra_args=extra_args,
+                    )
+                else:
+                    scheduler = type(self.pipe.scheduler).from_config(self.pipe.scheduler.config)
+                    scheduler.set_timesteps(MOSS_STEPS, device=device)
+                    for index, timestep in enumerate(self.pipe.progress_bar(scheduler.timesteps)):
+                        sigma = scheduler.sigmas[index].to(device)
+                        denoised = denoise(latents, sigma.expand(1))
+                        velocity = (latents - denoised) / sigma
+                        latents = scheduler.step(velocity, timestep, latents, return_dict=False)[0]
+                image = self._decode_latents(latents)
+        finally:
+            self.pipe.maybe_free_model_hooks()
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return [base64.b64encode(buffer.getvalue()).decode("ascii")]
+
+    def _decode_latents(self, latents):
+        """官方 MOSS 管线的 FLUX.2 latent 反归一化与解码。"""
+        vae = self.pipe.vae
+        z = latents.to(dtype=vae.dtype)
+        bn = vae.bn
+        z = z * (bn.running_var + vae.config.batch_norm_eps).sqrt().to(z).view(1, -1, 1, 1)
+        z = z + bn.running_mean.to(z).view(1, -1, 1, 1)
+        batch, channels, height, width = z.shape
+        z = z.reshape(batch, channels // 4, 2, 2, height, width)
+        z = z.permute(0, 1, 4, 2, 5, 3).reshape(batch, channels // 4, 2 * height, 2 * width)
+        images = vae.decode(z, return_dict=False)[0].clamp(-1, 1)
+        return self.pipe.image_processor.postprocess(images, output_type="pil")[0]
