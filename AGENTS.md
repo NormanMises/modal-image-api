@@ -6,7 +6,7 @@
 - `images_api.py`：共享的 OpenAI Images 兼容 web 接口（鉴权、OpenAI 标准错误、`/v1/models` 与生成路由）。`create_images_app(models, metas)` 按请求里的 `model` 字段分发到对应模型。
 - `zimage_loader.py`：Z-Image 系列模型的加载与生成后端（`ZImageBackend`），含 ComfyUI checkpoint → 原生权重的转换（`CheckpointSpec`）。
 - `images_app.py`：统一部署入口。Z-Image 家族由 `Z_IMAGE_MODELS` spec 表驱动（工厂按 spec 生成 cls）；FLUX.2 保持显式 cls。
-- `moss_loader.py`：MOSS-Image-SFT + 观澜 LoRA，固定底模版本并校验 LoRA SHA256，严格匹配并合并全部 PEFT 权重。`test_moss_loader.py` 提供 CPU 合并及下载校验测试。
+- `moss_loader.py`：MOSS-Image-SFT + 观澜 LoRA，固定底模版本并校验 LoRA SHA256，严格匹配并合并全部 PEFT 权重。
 - `comfy_moss_sampling.py`：ComfyUI ER-SDE/simple 的 MOSS flow 适配；跳层区间按 sigma 判断，送入官方 Transformer 的时间步需乘 1000。该文件遵循 GPL-3.0，保留第三方许可。
 - `compare_moss.py`：4 个 L40S 容器并行生成同种子采样对照；个人提示词和输出图保留在本地，不提交。
 - 真实密钥放在 Modal Secret 中，不要提交。
@@ -48,10 +48,11 @@
 改动后至少运行：
 
 - `python -m py_compile images_api.py images_app.py`
-- 如涉及 MOSS：`python -m unittest test_moss_loader test_moss_sampling`
+- 如涉及 MOSS：验证权重加载、采样和尺寸处理逻辑。
 - 如涉及 `images_api.py`：跑本地 TestClient 验证鉴权、错误格式与路由（含 `model` 分发）。
 - 如涉及部署：`modal deploy images_app.py`
 - 如涉及接口行为：用最小尺寸请求做 smoke test。
+- 临时测试文件用完即删除，不提交到仓库。
 
 ## 安全与许可
 不要提交 `.env`、`.dev.vars`、HF token、Modal token 或任何密钥。

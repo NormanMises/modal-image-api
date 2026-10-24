@@ -36,8 +36,7 @@ python3.12 -m venv .venv
 Select `"model": "kook-moss-guanlan"` using the existing endpoint and API key.
 
 `comfy_moss_sampling.py` adapts ComfyUI's pinned ER-SDE and simple schedule code
-under GPL-3.0; see `LICENSE-ComfyUI.txt`. CPU checks:
-`.venv/bin/python -m unittest test_moss_loader test_moss_sampling`.
+under GPL-3.0; see `LICENSE-ComfyUI.txt`.
 For four matched seed pairs, run `modal run compare_moss.py --prompt-file prompt.txt
 --negative-file negative.txt`. Both presets use 25 steps, CFG 3, and identical
 negative prompts and SLG intervals; only sampler/schedule change. Comparison seeds
