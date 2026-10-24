@@ -204,3 +204,16 @@ public/
 output/
 .vscode/
 research/
+
+# Generated images, comparison prompts, and measurement results
+/outputs/
+
+# Local secrets (keep example templates trackable)
+.env.*
+!.env.example
+!.env.*.example
+.modal.toml
+
+# macOS metadata
+.DS_Store
+._*
