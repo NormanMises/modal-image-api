@@ -10,13 +10,14 @@
 - `image_service/catalog.py`：唯一的启用模型清单。
 - `image_service/config.py`：App 名称、共享鉴权 Secret 等通用服务配置。
 - `image_service/encoding.py`：PNG / Base64 序列化。
+- `image_service/comfy.py`：容器内 ComfyUI 服务和原生工作流执行，返回图片后清理输出和执行历史。
 - `image_service/storage.py`：唯一共享权重 Volume `image-model-cache`，挂载到 `/cache`，各模型使用 `/cache/<model_id>`。
-- `image_service/models/<name>/`：每个模型独立的 `config.py`、`deployment.py` 和 `backend.py`。观澜另有 LoRA 模块。
+- `image_service/models/<name>/`：每个模型独立的 `config.py`、`deployment.py` 和 `backend.py`。观澜另有 LoRA 下载模块和官方工作流接线模块。
 
 新增模型只需新增模型目录并在 catalog 中注册，不改 API 或其他模型。模型配置放在对应
 `config.py`；镜像依赖、GPU 和容器生命周期放在对应 `deployment.py`。所有模型共用 storage 中的 Volume，不单独创建模型 Volume。
 后端继承 `ImageBackend` 并实现相同签名的 load 和 generate；容器继承 `ModelWorker`，只设置 cache_dir 并实现 create_backend。
-所有模型均由公共容器启动钩子导入后端并加载权重；禁止在包初始化或部署导入期间
+所有后端均由公共容器启动钩子初始化，ComfyUI 后端由原生工作流节点按需加载权重；禁止在包初始化或部署导入期间
 加载 torch、diffusers 等推理依赖。`__init__.py` 保持轻量。
 
 ## 构建、调试与部署
@@ -47,4 +48,4 @@
 - 涉及模型时验证加载、采样和尺寸处理；涉及部署时实际部署并做小尺寸线上验证。
 - 临时测试、对比、测量脚本和中间输出用完即删除，不提交；文档不保留已删除脚本的引用。
 - 不提交 `.env`、HF token、Modal token 或密钥。
-- 观澜使用固定版本的 OpenMOSS 官方 Python 管线：50 步、CFG 3、Euler、MOSSImageScheduler（shift 5）、全程负面分支跳过第 22 层。附加负面词为 worst quality, bad anatomy, watermark, jpeg artifact，不含 nsfw。
+- 观澜使用固定版本 ComfyUI 和官方 image_moss_image_t2i.json 的原生节点图，禁用自定义节点。底模和 Qwen3.5-9B 编码器使用 BF16，VAE 使用 flux2-vae_small，原生 LoraLoaderModelOnly 加载观澜 LoRA（强度 1）。保持模板 25 步、CFG 2.5、er_sde/simple、开启提示词增强、关闭 SLG；负面词不含 nsfw。

@@ -17,7 +17,7 @@ class ModelInfo:
 class ImageBackend(ABC):
     @abstractmethod
     def load(self, cache_dir: str) -> None:
-        """Load the model once, using its persistent cache directory."""
+        """Initialize the model runtime once, using its persistent cache directory."""
         ...
 
     @abstractmethod

@@ -15,21 +15,28 @@ Included model integrations:
 | `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 Guanlan uses a separate L40S container and the `kook-moss-guanlan/` directory in the shared `image-model-cache` Volume.
-The SFT base revision and LoRA SHA256 are pinned. The LoRA is merged at strength 1.
-Generation calls the official OpenMOSS Python pipeline with 50 steps, CFG 3,
-flow-matching Euler, the official `MOSSImageScheduler` with shift 5, and
-negative-branch layer 22 skipping throughout all steps. Sampling follows the
-[official SFT Python baseline](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings),
-with the added negative prompt `worst quality, bad anatomy, watermark, jpeg artifact`
-(without `nsfw`).
-The API uses a random seed for each request and does not rewrite prompts.
+ComfyUI and the [official `image_moss_image_t2i.json` template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_moss_image_t2i.json)
+are pinned to commits. The container runs ComfyUI itself with custom nodes disabled.
+The official API-export graph uses native loaders, text generation/encoding,
+`KSampler`, VAE decoding, and image output nodes. The model and text encoder are
+`moss_image_sft_bf16.safetensors` and `qwen3.5_9b_bf16.safetensors`; the VAE remains
+`flux2-vae_small.safetensors`. The verified Guanlan LoRA is applied by the native
+`LoraLoaderModelOnly` node at strength 1.
+
+Template settings are retained: 25 steps, CFG 2.5, `er_sde / simple`, prompt
+enhancement enabled, and skip-layer guidance disabled. The negative prompt is
+`worst quality, bad anatomy, watermark, jpeg artifact` (without `nsfw`). The sampling
+seed changes for each request. These are ComfyUI template settings, rather than
+the standalone OpenMOSS Python settings.
 Any positive integer dimensions are accepted. MOSS rounds its
 generation dimensions up to multiples of 16 and returns the complete native image,
 without cropping or resizing. The aspect ratio may change slightly due to alignment.
 For example, `941x1672` generates and returns `944x1680`.
 Aligned sizes pass through unchanged; non-positive sizes return HTTP 400 / `param: "size"`.
-Model CPU offload limits GPU memory use. Memory requests, execution timeouts, idle
-scaling, and tokenizer parallelism use the platform/library defaults.
+ComfyUI manages model memory. Modal resources, idle scaling, and tokenizer
+parallelism use their defaults. ComfyUI listens only on the container loopback
+interface; clients continue using the existing OpenAI-compatible API. Generated
+PNG files and completed request history are deleted after returning the images.
 The first request downloads the base model.
 
 On macOS, use a local virtual environment:
@@ -106,6 +113,7 @@ image_service/
   catalog.py                    # Enabled model deployments
   config.py                     # Shared App and authentication Secret names
   encoding.py                   # PNG / Base64 serialization
+  comfy.py                      # Internal ComfyUI server and workflow execution
   storage.py                    # One shared model-weight Volume
   models/
     z_image/
@@ -115,12 +123,14 @@ image_service/
     guanlan/
       config.py
       deployment.py
-      backend.py
-      lora.py                   # Download, SHA256, strict PEFT merge
+      backend.py                # Prepare weights and execute the native workflow
+      lora.py                   # LoRA download and SHA256 verification
+      workflow.py               # Official graph with BF16 loaders and LoRA wiring
 ```
 
-Both backends load inside their own GPU container startup hook and reuse the model
-for later requests. The API image installs FastAPI only; each GPU image installs
+Both backends initialize inside their GPU container startup hook. Z-Image loads
+its model directly; Guanlan starts ComfyUI, which loads and caches models through
+the native workflow nodes. The API image installs FastAPI only; each GPU image installs
 its own inference dependencies. All imports outside container startup are lightweight.
 Existing App, worker, and endpoint names remain stable.
 

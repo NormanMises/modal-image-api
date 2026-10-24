@@ -1,4 +1,4 @@
-"""Download validation and strict PEFT merging for the Guanlan LoRA."""
+"""Download and verify the Guanlan LoRA for the native ComfyUI loader."""
 
 import hashlib
 from pathlib import Path
@@ -23,33 +23,3 @@ def download_lora(cache_dir: str) -> Path:
             raise ValueError("观澜 LoRA SHA256 校验失败")
         temporary.replace(path)
     return path
-
-
-def merge_lora(transformer, state: dict) -> int:
-    """AI Toolkit PEFT 导出不另带 alpha，使用 B @ A，强度为 1。"""
-    import torch
-
-    pairs = []
-    consumed = set()
-    for key, a in state.items():
-        if not key.startswith("diffusion_model.") or not key.endswith(".lora_A.weight"):
-            continue
-        stem = key.removesuffix(".lora_A.weight")
-        b_key = stem + ".lora_B.weight"
-        if b_key not in state:
-            raise ValueError(f"缺少 LoRA B: {stem}")
-        b = state[b_key]
-        module = transformer.get_submodule(stem.removeprefix("diffusion_model."))
-        if a.ndim != 2 or b.ndim != 2 or a.shape[0] != b.shape[1]:
-            raise ValueError(f"无效 LoRA 形状: {stem}")
-        if tuple(module.weight.shape) != (b.shape[0], a.shape[1]):
-            raise ValueError(f"LoRA 与底模形状不匹配: {stem}")
-        pairs.append((module.weight, a, b))
-        consumed.update((key, b_key))
-    if not pairs or consumed != set(state):
-        raise ValueError(f"LoRA 含未识别权重: {sorted(set(state) - consumed)}")
-    with torch.no_grad():
-        for weight, a, b in pairs:
-            delta = b.float() @ a.float()
-            weight.add_(delta.to(device=weight.device, dtype=weight.dtype))
-    return len(pairs)

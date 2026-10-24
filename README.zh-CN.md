@@ -13,15 +13,22 @@
 | `kook-moss-guanlan` | [KOOK 观澜](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 观澜使用独立 L40S 容器，权重放在共享 `image-model-cache` Volume 的 `kook-moss-guanlan/` 目录，底模为
-`OpenMOSS-Team/MOSS-Image-SFT`。底模固定版本，LoRA 按 SHA256 校验后以强度 1 合并。
-生成直接调用官方 Python 管线，使用 50 步、CFG 3、Flow-matching Euler、官方 `MOSSImageScheduler`（shift 5），
-负面分支全程跳过第 22 层，采样采用[官方 SFT Python 基线](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT#sampling-settings)。
-额外添加负面词 `worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
-每次请求随机种子，不自动改写提示词。
+MOSS-Image-SFT。ComfyUI 和[官方 `image_moss_image_t2i.json` 模板](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_moss_image_t2i.json)
+固定到提交版本。容器实际运行 ComfyUI，禁用自定义节点，使用官方 API 导出图中的原生加载、
+文本生成/编码、KSampler、VAE 解码和图片输出节点。
+
+底模使用 `moss_image_sft_bf16.safetensors`，文本编码器使用 `qwen3.5_9b_bf16.safetensors`，
+VAE 保留模板的 `flux2-vae_small.safetensors`。观澜 LoRA 按 SHA256 校验后，通过原生
+`LoraLoaderModelOnly` 节点以强度 1 加载。
+
+保留模板的 25 步、CFG 2.5、`er_sde / simple`、开启提示词增强、关闭跳层引导。
+负面词为 `worst quality, bad anatomy, watermark, jpeg artifact`（不含 `nsfw`）。
+每次请求更换采样种子。这是 ComfyUI 模板设置，与独立 OpenMOSS Python 管线的默认值不同。
 宽高可以是任意正整数。MOSS 将宽高向上对齐到 16 的倍数，直接返回生成的完整图片，
 不裁切、不缩放；对齐可能使比例有轻微偏差。例如请求 `941x1672`，生成并返回
 `944x1680`；已经对齐的尺寸直接返回。非正数仍返回 HTTP 400 / `param: "size"`。
-模型组件按顺序搬到 GPU。内存请求、执行超时、空闲缩容和分词并行使用平台或库默认值；首次请求需要下载底模。
+ComfyUI 管理模型显存，Modal 资源、空闲缩容和分词并行使用默认值。ComfyUI 仅监听容器内部地址，
+客户端继续调用原有 OpenAI 兼容 API。图片返回后清理生成文件及该请求的执行历史。
 
 Mac 本地环境：
 
@@ -97,6 +104,7 @@ image_service/
   catalog.py                    # 启用的模型清单
   config.py                     # 通用 App 和鉴权 Secret 名称
   encoding.py                   # PNG / Base64 序列化
+  comfy.py                      # 内部 ComfyUI 服务与工作流执行
   storage.py                    # 唯一共享权重 Volume
   models/
     z_image/
@@ -106,11 +114,13 @@ image_service/
     guanlan/
       config.py
       deployment.py
-      backend.py
-      lora.py                   # 下载、SHA256、严格 PEFT 合并
+      backend.py                # 准备权重并运行原生工作流
+      lora.py                   # LoRA 下载和 SHA256 校验
+      workflow.py               # 官方节点图的 BF16 模型与 LoRA 接线
 ```
 
-两个模型统一在各自 GPU 容器的启动钩子里加载，后续请求复用模型。API 镜像只安装
+两个后端统一在 GPU 容器启动钩子中初始化；Z-Image 直接加载模型，观澜启动 ComfyUI，
+由原生工作流节点按需加载并缓存模型。API 镜像只安装
 FastAPI；GPU 镜像各自安装推理依赖。容器启动前的模块导入均不加载推理框架。
 App、模型容器类和接口名称沿用原配置。
 
