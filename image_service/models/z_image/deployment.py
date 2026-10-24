@@ -13,18 +13,11 @@ image = with_source(
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("git")
     .uv_pip_install("tqdm", f"git+https://github.com/Tongyi-MAI/Z-Image.git@{SOURCE_COMMIT}")
-    .env({
-        "HF_HOME": CACHE_DIR,
-        "HF_HUB_CACHE": f"{CACHE_DIR}/hub",
-        "HF_XET_HIGH_PERFORMANCE": "1",
-        "TOKENIZERS_PARALLELISM": "false",
-        "ZIMAGE_ATTENTION": "_native_flash",
-    })
+    .env({"HF_HOME": CACHE_DIR})
 )
 
 
 @app.cls(image=image, gpu="L40S", volumes={CACHE_ROOT: model_cache})
-@modal.concurrent(max_inputs=1)
 class ZImageTurboModel:
     @modal.enter()
     def load_model(self):

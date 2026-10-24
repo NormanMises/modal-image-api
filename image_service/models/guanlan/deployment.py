@@ -19,19 +19,11 @@ image = with_source(
         "safetensors>=0.6,<1",
         "Pillow>=10",
     )
-    .env({"HF_HOME": CACHE_DIR, "TOKENIZERS_PARALLELISM": "false"})
+    .env({"HF_HOME": CACHE_DIR})
 )
 
 
-@app.cls(
-    image=image,
-    gpu="L40S",
-    memory=65536,
-    volumes={CACHE_ROOT: model_cache},
-    timeout=1200,
-    scaledown_window=120,
-)
-@modal.concurrent(max_inputs=1)
+@app.cls(image=image, gpu="L40S", volumes={CACHE_ROOT: model_cache})
 class KookMossGuanlan:
     @modal.enter()
     def load_model(self):

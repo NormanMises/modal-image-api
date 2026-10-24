@@ -24,7 +24,8 @@ generation dimensions up to multiples of 16 and returns the complete native imag
 without cropping or resizing. The aspect ratio may change slightly due to alignment.
 For example, `941x1672` generates and returns `944x1680`.
 Aligned sizes pass through unchanged; non-positive sizes return HTTP 400 / `param: "size"`.
-Model CPU offload limits GPU memory use; idle containers may scale down after 120 seconds.
+Model CPU offload limits GPU memory use. Memory requests, execution timeouts, idle
+scaling, and tokenizer parallelism use the platform/library defaults.
 The first request downloads the base model.
 
 On macOS, use a local virtual environment:

@@ -26,6 +26,7 @@
 - 部署：`.venv/bin/modal deploy images_app.py`
 - 保持 App `images-api`、函数 `fastapi_app` 以及现有容器类名稳定。
 - 每个 GPU 容器同时处理一次生成；通过多个容器实现请求并行。
+- 运行参数使用 Modal 和依赖库默认值，不额外覆盖 memory、timeout、scaledown_window、分词并行或下载性能参数。仅配置模型镜像、GPU、缓存挂载及必要的 HF_HOME。
 
 ## API 与 Secret
 
