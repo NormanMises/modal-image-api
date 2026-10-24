@@ -97,7 +97,7 @@ class MossBackend:
 
         if width <= 0 or height <= 0:
             raise ValueError("MOSS 图片宽高必须是正数")
-        requested_size = (width, height)
+        # Generate directly on the supported grid and return the complete image.
         width = ((width + 15) // 16) * 16
         height = ((height + 15) // 16) * 16
         if sampler not in {"er_sde", "official_euler"}:
@@ -143,12 +143,6 @@ class MossBackend:
                 image = self._decode_latents(latents)
         finally:
             self.pipe.maybe_free_model_hooks()
-        if requested_size != (width, height):
-            from PIL import Image, ImageOps
-
-            # Preserve the requested aspect ratio without stretching. Alignment
-            # adds at most 15 pixels per side; crop that small excess and resize.
-            image = ImageOps.fit(image, requested_size, method=Image.Resampling.LANCZOS)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return [base64.b64encode(buffer.getvalue()).decode("ascii")]

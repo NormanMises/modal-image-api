@@ -113,7 +113,7 @@ class MossFlowAdapterTests(unittest.TestCase):
         self.assertNotIn("nsfw", MOSS_NEGATIVE_PROMPT.lower())
         backend.pipe.maybe_free_model_hooks.assert_called_once()
 
-    def test_unaligned_sizes_generate_on_grid_and_return_exact_requested_aspect(self):
+    def test_unaligned_sizes_return_complete_native_image(self):
         import base64
         from PIL import Image
 
@@ -130,7 +130,7 @@ class MossFlowAdapterTests(unittest.TestCase):
                 latents = backend._decode_latents.call_args.args[0]
                 self.assertEqual((latents.shape[-1] * 16, latents.shape[-2] * 16), native)
                 image = Image.open(io.BytesIO(base64.b64decode(result[0])))
-                self.assertEqual(image.size, requested)
+                self.assertEqual(image.size, native)
 
 
 if __name__ == "__main__":
