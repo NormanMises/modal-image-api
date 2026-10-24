@@ -1,8 +1,11 @@
-# 在 Modal 上部署图片生成 API
+# Modal 图像生成模型 API
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-在 [Modal](https://modal.com/) 上部署一个统一的、兼容 OpenAI Images API 的图片生成接口，支持多个自托管模型：
+在 [Modal](https://modal.com/) 上部署图像生成模型，统一提供兼容 OpenAI Images API 的接口。
+每个模型独立管理推理代码、运行依赖、GPU 配置和权重缓存；通过模型清单接入，复用公共 API 和部署入口。
+
+预置模型：
 
 | `model` id | 模型 | 后端 |
 |---|---|---|
@@ -30,7 +33,7 @@ python3.12 -m venv .venv
 
 调用观澜时，把生成请求的 `model` 设置为 `kook-moss-guanlan`；API 地址和鉴权沿用现有服务。
 
-`comfy_moss_sampling.py` 改编自固定版本的 ComfyUI ER-SDE 与 simple 调度实现，
+`image_service/models/guanlan/sampling.py` 改编自固定版本的 ComfyUI ER-SDE 与 simple 调度实现，
 该文件遵循 GPL-3.0，许可原文见 `LICENSE-ComfyUI.txt`。
 
 服务提供：
@@ -61,7 +64,7 @@ modal setup
 创建 API 使用的 Secret：
 
 ```bash
-modal secret create z-image-api API_KEY=替换为一个较长的随机密钥
+modal secret create image-api-auth API_KEY=替换为一个较长的随机密钥
 ```
 
 该 Secret 必须包含 `API_KEY`。不要把真实密钥提交到 Git，也不要写进浏览器端代码。
@@ -74,7 +77,7 @@ modal secret create z-image-api API_KEY=替换为一个较长的随机密钥
 modal deploy images_app.py
 ```
 
-Modal 会根据 `images_app.py` 中的 `modal.Image` 定义构建运行镜像，并输出应用地址。给这个地址加上 `/v1`，就是 API Base URL：
+Modal 按各模型的 `deployment.py` 构建独立镜像；`images_app.py` 组合模型 App 和轻量 API，并输出应用地址。给这个地址加上 `/v1`，就是 API Base URL：
 
 ```text
 https://your-modal-app.modal.run/v1
@@ -84,8 +87,51 @@ https://your-modal-app.modal.run/v1
 
 ## 项目结构
 
-- `images_api.py` —— 共享的 OpenAI 兼容 web 接口（鉴权、OpenAI 标准错误、`/v1/models` 和生成路由）。`create_images_app(models, metas)` 按 `model` 字段分发到对应模型。
-- `images_app.py` —— 统一部署入口。注册模型容器，配置运行镜像和缓存 Volume。
+```text
+images_app.py                   # 部署入口：组合模型与 CPU API
+image_service/
+  api.py                        # HTTP 输入、鉴权、错误和响应
+  contracts.py                  # 后端接口和模型元数据
+  registry.py                   # 元数据与生成函数统一注册
+  deployment.py                 # Modal App 组合和远程调用适配
+  catalog.py                    # 启用的模型清单
+  config.py                     # 通用 App 和鉴权 Secret 名称
+  encoding.py                   # PNG / Base64 序列化
+  models/
+    z_image/
+      config.py                 # 模型标识、固定版本、生成默认值
+      deployment.py             # 依赖、GPU、Volume、容器生命周期
+      backend.py                # 原生 Z-Image 加载和推理
+    guanlan/
+      config.py
+      deployment.py
+      backend.py
+      lora.py                   # 下载、SHA256、严格 PEFT 合并
+      sampling.py               # ComfyUI ER-SDE / simple
+```
+
+两个模型统一在各自 GPU 容器的启动钩子里加载，后续请求复用模型。API 镜像只安装
+FastAPI；GPU 镜像各自安装推理依赖。容器启动前的模块导入均不加载推理框架。
+App、模型容器类、接口和 Volume 名称沿用原配置。
+
+## 新增模型
+
+1. 在 `image_service/models/<name>/` 添加 `__init__.py`、`config.py`、`backend.py`
+   和 `deployment.py`。推理框架在后端加载或生成时导入。
+2. 实现 `generate(prompt, width, height) -> list[str]`，返回 Base64 PNG；序列化复用
+   `image_service.encoding.image_to_base64`。
+3. 在 `deployment.py` 定义独立 `modal.App`、镜像、缓存和 GPU 容器，并导出
+   `ModelDeployment(app, MODEL_INFO, Worker)`。容器类名须唯一；用 `with_source(image)`
+   打包本地代码。每个 GPU 容器同时生成一张图，通过增加容器实现并行。
+4. 在 `image_service/catalog.py` 的 `MODEL_DEPLOYMENTS` 中注册。
+   模型列表、元数据和请求分发都取自这份注册表。
+5. 执行本地检查，再运行 `modal deploy images_app.py`。
+
+通用服务名称集中在 `image_service/config.py`，共享鉴权 Secret 为 `image-api-auth`，
+与启用了哪些模型无关。
+
+模型参数改对应的 `config.py`，依赖、GPU 资源和缩容时间改对应的 `deployment.py`。
+无需修改 API 或其他模型。模块组合方式参见 [Modal 项目结构文档](https://modal.com/docs/guide/project-structure)。
 
 ## 认证
 
@@ -128,7 +174,7 @@ curl "$BASE_URL/images/generations" \
 
 请求字段：
 
-- `model`：必填，取 `z-image-turbo` / `kook-moss-guanlan` 之一
+- `model`：必填，选择 `GET /v1/models` 返回的模型 ID
 - `prompt`：必填的文本提示词
 - `size`：`WIDTHxHEIGHT`，默认 `1024x1024`
 - `response_format`：只支持 `b64_json`
@@ -170,12 +216,12 @@ result = client.images.generate(
 ## 本地检查
 
 ```bash
-python -m py_compile images_api.py images_app.py
+python -m compileall -q images_app.py image_service
 ```
 
 ## 安全
 
-- 将 `API_KEY` 保存在 `z-image-api` Modal Secret 中。
+- 将 `API_KEY` 保存在 `image-api-auth` Modal Secret 中。
 - 不要提交 `.env`、`.dev.vars`、Modal token 或其他凭据。
 - 如果 key 泄露，请立即轮换。
 - 当前 CORS 允许所有来源。面向不受信任的浏览器客户端时，请限制 `allow_origins`。

@@ -9,11 +9,13 @@
 import torch
 from tqdm.auto import trange
 
+from .config import MOSS_SHIFT, MOSS_STEPS, SKIP_END, SKIP_START
+
 UPSTREAM_COMMIT = "bc5f880dbdd43e426077f42ccec53bb577ffee9f"
 
 
 class FlowSampling:
-    def __init__(self, shift=5.0):
+    def __init__(self, shift=MOSS_SHIFT):
         self.shift = shift
         t = torch.arange(1, 1001, dtype=torch.float32) / 1000
         self.sigmas = shift * t / (1 + (shift - 1) * t)
@@ -27,7 +29,7 @@ class FlowSampling:
         return self.shift * t / (1 + (self.shift - 1) * t)
 
 
-def simple_sigmas(steps=25):
+def simple_sigmas(steps=MOSS_STEPS):
     sampling = FlowSampling()
     stride = len(sampling.sigmas) / steps
     values = [float(sampling.sigmas[-(1 + int(i * stride))]) for i in range(steps)]
@@ -36,7 +38,7 @@ def simple_sigmas(steps=25):
 
 def uncond_skip_active(sigma):
     sampling = FlowSampling()
-    return sampling.percent_to_sigma(0.5) <= float(sigma) <= sampling.percent_to_sigma(0)
+    return sampling.percent_to_sigma(SKIP_END) <= float(sigma) <= sampling.percent_to_sigma(SKIP_START)
 
 
 def sigma_to_half_log_snr(sigma, model_sampling):

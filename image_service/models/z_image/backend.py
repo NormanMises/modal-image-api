@@ -1,17 +1,9 @@
 """Z-Image-Turbo 权重加载、原生生成与图片序列化。"""
 
-import base64
-import io
 import os
 
-Z_IMAGE_STEPS = 8
-Z_IMAGE_GUIDANCE = 0.0
-
-
-def _image_to_base64(image) -> str:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
+from ...encoding import image_to_base64
+from .config import GUIDANCE, STEPS
 
 
 class ZImageBackend:
@@ -21,8 +13,8 @@ class ZImageBackend:
         self,
         model_dir: str,
         repo_id: str,
-        steps: int = Z_IMAGE_STEPS,
-        guidance: float = Z_IMAGE_GUIDANCE,
+        steps: int = STEPS,
+        guidance: float = GUIDANCE,
     ):
         import torch
         from utils import ensure_model_weights, load_from_local_dir, set_attention_backend
@@ -58,4 +50,4 @@ class ZImageBackend:
             guidance_scale=self._guidance,
         )
         torch.cuda.empty_cache()
-        return [_image_to_base64(image_obj) for image_obj in images]
+        return [image_to_base64(image_obj) for image_obj in images]

@@ -1,33 +1,20 @@
 """共享的 OpenAI Images 兼容 web 接口。
 
-统一的深 module：鉴权、size 解析、OpenAI 标准错误、
+鉴权、size 解析、OpenAI 标准错误、
 `/v1/models` 与 `POST /v1/images/generations` 路由只在这里实现一次。
 
-``create_images_app`` 接收一个模型注册表（model_id -> generate adapter）和
-元数据表（model_id -> ImagesMeta），按请求里的 ``model`` 字段分发到对应模型。
+``create_images_app`` 通过模型注册表获取元数据和生成函数，不依赖 Modal 或推理实现。
 """
 
 import hmac
 import os
 import time
-from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-DEFAULT_SIZE = "1024x1024"
-
-# generate 契约：异步，输入 prompt + 宽高，返回一张图的 b64 列表。
-Generate = Callable[[str, int, int], Awaitable[list[str]]]
-
-
-@dataclass(frozen=True)
-class ImagesMeta:
-    model: str
-    owned_by: str
-    default_size: str = DEFAULT_SIZE
+from .registry import ModelRegistry
 
 
 class OpenAIError(Exception):
@@ -89,7 +76,7 @@ def parse_size(size: object, default_size: str) -> tuple[int, int]:
 async def read_json_request(request: Request) -> dict:
     try:
         payload = await request.json()
-    except Exception as exc:
+    except ValueError as exc:
         raise invalid_request("The request body must be a JSON object.") from exc
     if not isinstance(payload, dict):
         raise invalid_request("The request body must be a JSON object.")
@@ -102,7 +89,7 @@ def build_image_response(images_b64: list[str]) -> JSONResponse:
     return JSONResponse(content={"created": created, "data": data}, headers={"cache-control": "no-store"})
 
 
-def create_images_app(models: dict[str, Generate], metas: dict[str, ImagesMeta]) -> FastAPI:
+def create_images_app(registry: ModelRegistry) -> FastAPI:
     web_app = FastAPI()
     web_app.add_middleware(
         CORSMiddleware,
@@ -125,12 +112,12 @@ def create_images_app(models: dict[str, Generate], metas: dict[str, ImagesMeta])
             "object": "list",
             "data": [
                 {
-                    "id": meta.model,
+                    "id": meta.id,
                     "object": "model",
                     "created": int(time.time()),
                     "owned_by": meta.owned_by,
                 }
-                for meta in metas.values()
+                for meta in registry.list_models()
             ],
         }
 
@@ -143,16 +130,18 @@ def create_images_app(models: dict[str, Generate], metas: dict[str, ImagesMeta])
         payload = await read_json_request(request)
 
         model_id = payload.get("model")
-        if not isinstance(model_id, str) or model_id not in models:
+        endpoint = registry.get(model_id) if isinstance(model_id, str) else None
+        if endpoint is None:
             raise invalid_request(
-                "model must be one of: " + ", ".join(sorted(models)), param="model"
+                "model must be one of: " + ", ".join(sorted(meta.id for meta in registry.list_models())),
+                param="model",
             )
 
         prompt = payload.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             raise invalid_request("prompt must be a non-empty string.", param="prompt")
 
-        width, height = parse_size(payload.get("size"), metas[model_id].default_size)
+        width, height = parse_size(payload.get("size"), endpoint.info.default_size)
         if width <= 0 or height <= 0:
             raise invalid_request("size width and height must be positive integers.", param="size")
 
@@ -161,7 +150,7 @@ def create_images_app(models: dict[str, Generate], metas: dict[str, ImagesMeta])
             raise invalid_request("response_format only supports b64_json.", param="response_format")
 
         try:
-            images_b64 = await models[model_id](prompt.strip(), width, height)
+            images_b64 = await endpoint.generate(prompt.strip(), width, height)
         except Exception as exc:
             print(f"image generation failed: {exc!r}")
             raise server_error("Image generation failed.") from exc

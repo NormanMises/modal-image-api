@@ -1,8 +1,12 @@
-# Modal Image API
+# Modal Image Model API
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Deploy a unified OpenAI-compatible image API on [Modal](https://modal.com/) serving multiple self-hosted image generation models:
+Deploy image generation models on [Modal](https://modal.com/) behind an OpenAI-compatible Images API.
+Each model owns its inference code, runtime dependencies, GPU settings, and weight cache.
+Add models through the catalog while reusing the shared API and deployment entry.
+
+Included model integrations:
 
 | `model` id | Model | Backend |
 |---|---|---|
@@ -33,7 +37,7 @@ python3.12 -m venv .venv
 
 Select `"model": "kook-moss-guanlan"` using the existing endpoint and API key.
 
-`comfy_moss_sampling.py` adapts ComfyUI's pinned ER-SDE and simple schedule code
+`image_service/models/guanlan/sampling.py` adapts ComfyUI's pinned ER-SDE and simple schedule code
 under GPL-3.0; see `LICENSE-ComfyUI.txt`.
 
 The service provides:
@@ -50,7 +54,7 @@ The service provides:
 
 The local Python version only needs to be supported by the Modal CLI. The deployed containers use Python 3.13 (Z-Image models) and 3.12 (MOSS) internally.
 
-Z-Image-Turbo is public and do not require a Hugging Face token.
+Z-Image-Turbo is public and does not require a Hugging Face token.
 
 ## Deploy
 
@@ -64,7 +68,7 @@ modal setup
 Create the Secret used by the API:
 
 ```bash
-modal secret create z-image-api API_KEY=replace-with-a-long-random-secret
+modal secret create image-api-auth API_KEY=replace-with-a-long-random-secret
 ```
 
 The Secret must contain `API_KEY`. Keep the real value out of Git and out of browser code.
@@ -77,7 +81,7 @@ Deploy from the repository root:
 modal deploy images_app.py
 ```
 
-Modal builds the runtime images from the `modal.Image` definitions in `images_app.py` and prints the application URL. Add `/v1` to that URL to get the API base URL:
+Modal builds each model image from its own `deployment.py`; `images_app.py` composes the model Apps and the lightweight API and prints the application URL. Add `/v1` to that URL to get the API base URL:
 
 ```text
 https://your-modal-app.modal.run/v1
@@ -87,8 +91,54 @@ The app stores model weights in Modal Volumes (`hf-hub-cache` for the Z-Image fa
 
 ## Structure
 
-- `images_api.py` — shared OpenAI-compatible web interface (auth, OpenAI-standard errors, `/v1/models` and the generation route). `create_images_app(models, metas)` dispatches to a model by the `model` field.
-- `images_app.py` — the unified deployment entry. Registers the model containers and configures their runtime images and cache volumes.
+```text
+images_app.py                   # Deploy entry: compose models and the CPU API
+image_service/
+  api.py                        # HTTP input, authentication, errors, responses
+  contracts.py                  # Backend interface and model metadata
+  registry.py                   # Model metadata and callable in one registry
+  deployment.py                 # Shared Modal composition and remote-call adapter
+  catalog.py                    # Enabled model deployments
+  config.py                     # Shared App and authentication Secret names
+  encoding.py                   # PNG / Base64 serialization
+  models/
+    z_image/
+      config.py                 # Identity, source pin, generation defaults
+      deployment.py             # Dependencies, GPU, Volume, load/generate lifecycle
+      backend.py                # Native Z-Image loading and inference
+    guanlan/
+      config.py
+      deployment.py
+      backend.py
+      lora.py                   # Download, SHA256, strict PEFT merge
+      sampling.py               # ComfyUI ER-SDE / simple implementation
+```
+
+Both backends load inside their own GPU container startup hook and reuse the model
+for later requests. The API image installs FastAPI only; each GPU image installs
+its own inference dependencies. All imports outside container startup are lightweight.
+Existing App, worker, endpoint, and Volume names remain stable.
+
+## Adding a model
+
+1. Add `image_service/models/<name>/` with an `__init__.py`, `config.py`, `backend.py`,
+   and `deployment.py`. Keep inference imports inside backend loading/generation.
+2. Implement `generate(prompt, width, height) -> list[str]`, returning Base64 PNGs.
+   Use `image_service.encoding.image_to_base64` for serialization.
+3. In `deployment.py`, define an independent `modal.App`, image, cache, GPU worker,
+   and export `ModelDeployment(app, MODEL_INFO, Worker)`. Use a unique worker class
+   name and `with_source(image)` to include the local package. Limit each GPU
+   container to one generation at a time; scale with more containers.
+4. Add the deployment to `MODEL_DEPLOYMENTS` in `image_service/catalog.py`.
+   Metadata, `/v1/models`, and generation routing use that same registration.
+5. Run the local check and `modal deploy images_app.py`.
+
+Shared service names are in `image_service/config.py`; the shared authentication
+Secret is `image-api-auth`, independent of the enabled models.
+
+For model settings, edit its `config.py`; for dependencies, GPU resources, or idle
+scaling, edit its `deployment.py`. No API or other model changes are needed.
+The package composition follows [Modal's project structure guide](https://modal.com/docs/guide/project-structure).
 
 ## Authentication
 
@@ -131,7 +181,7 @@ curl "$BASE_URL/images/generations" \
 
 The request fields are:
 
-- `model`: required, one of `z-image-turbo`, `kook-moss-guanlan`
+- `model`: required, choose an ID returned by `GET /v1/models`
 - `prompt`: required text prompt
 - `size`: `WIDTHxHEIGHT`, default `1024x1024`
 - `response_format`: `b64_json`
@@ -173,12 +223,12 @@ For other image workflows, see the [Modal existing images guide](https://modal.c
 ## Local check
 
 ```bash
-python -m py_compile images_api.py images_app.py
+python -m compileall -q images_app.py image_service
 ```
 
 ## Security
 
-- Store `API_KEY` in the `z-image-api` Modal Secret.
+- Store `API_KEY` in the `image-api-auth` Modal Secret.
 - Never commit `.env`, `.dev.vars`, Modal tokens, or other credentials.
 - Rotate the key if it is exposed.
 - CORS currently allows all origins. Restrict `allow_origins` before serving untrusted browser clients.

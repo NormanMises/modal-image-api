@@ -1,57 +1,47 @@
 # Repository Guidelines
 
 ## 项目结构
-一个 Modal App（`images_app.py`）里一个 FastAPI 应用 + 多个生图模型端点，共用 OpenAI Images 兼容接口。
 
-- `images_api.py`：共享的 OpenAI Images 兼容 web 接口（鉴权、OpenAI 标准错误、`/v1/models` 与生成路由）。`create_images_app(models, metas)` 按请求里的 `model` 字段分发到对应模型。
-- `zimage_loader.py`：Z-Image-Turbo 模型的加载与生成后端（`ZImageBackend`）。
-- `images_app.py`：统一部署入口，显式注册 Z-Image-Turbo 和观澜两个模型容器。
-- `moss_loader.py`：MOSS-Image-SFT + 观澜 LoRA，固定底模版本并校验 LoRA SHA256，严格匹配并合并全部 PEFT 权重。
-- `comfy_moss_sampling.py`：ComfyUI ER-SDE/simple 的 MOSS flow 适配；跳层区间按 sigma 判断，送入官方 Transformer 的时间步需乘 1000。该文件遵循 GPL-3.0，保留第三方许可。
-- 真实密钥放在 Modal Secret 中，不要提交。
-- `public/`、`functions/`、Cloudflare Pages 前端和旧 R2 图库链路已移除。
+- `images_app.py`：唯一部署入口，组合模型 App 与轻量 CPU API。
+- `image_service/api.py`：OpenAI Images 兼容 HTTP 接口、鉴权、参数校验、错误和响应。
+- `image_service/contracts.py`：模型元数据与后端 `generate(prompt, width, height) -> list[str]` 接口。
+- `image_service/registry.py`：元数据和生成函数统一注册；API 不依赖 Modal 或具体模型。
+- `image_service/deployment.py`：Modal 组合、代码打包和远程调用适配。
+- `image_service/catalog.py`：唯一的启用模型清单。
+- `image_service/config.py`：App 名称、共享鉴权 Secret 等通用服务配置。
+- `image_service/encoding.py`：PNG / Base64 序列化。
+- `image_service/models/<name>/`：每个模型独立的 `config.py`、`deployment.py` 和 `backend.py`。观澜另有 LoRA 与采样模块。
+
+新增模型只需新增模型目录并在 catalog 中注册，不改 API 或其他模型。模型配置放在对应
+`config.py`；镜像依赖、GPU、Volume 和容器生命周期放在对应 `deployment.py`。
+所有模型均在各自容器启动钩子内导入后端并加载权重；禁止在包初始化或部署导入期间
+加载 torch、diffusers 等推理依赖。`__init__.py` 保持轻量。
 
 ## 构建、调试与部署
-- Windows 使用 `deep` conda/mamba 环境；Mac 使用仓库内 `.venv`，Python / Modal 命令分别用 `.venv/bin/python` 和 `.venv/bin/modal`。
-- 语法检查：`python -m py_compile images_api.py images_app.py zimage_loader.py`
-- 部署：`modal deploy images_app.py`
-- 生成接口：`POST /v1/images/generations`；模型列表：`GET /v1/models`
 
-## 环境变量与 Secret
-- 客户端使用 `Authorization: Bearer <API_KEY>`。
-- Modal Secret `z-image-api` 只需包含 `API_KEY`。
-- Z-Image-Turbo 权重不是 gated，无需 HF token。
+- Windows 使用 `deep` conda/mamba 环境；Mac 使用仓库内 `.venv`。
+- Mac 命令：`.venv/bin/python` 和 `.venv/bin/modal`。
+- 语法检查：`.venv/bin/python -m compileall -q images_app.py image_service`
+- 部署：`.venv/bin/modal deploy images_app.py`
+- 保持 App `images-api`、函数 `fastapi_app` 以及现有容器类名和 Volume 名称稳定。
+- 每个 GPU 容器同时处理一次生成；通过多个容器实现请求并行。
 
-## API 约定
-`POST /v1/images/generations` 接收 OpenAI Images 风格 JSON：
+## API 与 Secret
 
-```json
-{
-  "model": "z-image-turbo",
-  "prompt": "a bold typographic poster",
-  "size": "1024x1024",
-  "response_format": "b64_json"
-}
-```
+- `GET /v1/models`；`POST /v1/images/generations`。
+- 客户端使用 `Authorization: Bearer <API_KEY>`；密钥放在 Modal Secret `image-api-auth`。
+- `model` 必填，取值来自 catalog 注册的模型，具体列表由 `/v1/models` 返回。
+- `prompt` 必填；`size` 默认 `1024x1024`，宽高为正整数。
+- 观澜宽高向上对齐到 16 的倍数，返回完整原生图片，不裁切、不缩放。
+- 每请求一张图；`response_format` 只支持 `b64_json`。不提供 n、steps、quality 或 seed。
+- OpenAI 标准错误格式；400 `invalid_request_error`，401 `authentication_error`，500 `server_error`。
 
-- `model` 为必填，取值见 `GET /v1/models`（`z-image-turbo` / `kook-moss-guanlan`）。
-- 每个请求固定生成一张图片；不传 `n`、`steps`、`quality` 或 `seed`。
-- `size` 为 `WIDTHxHEIGHT`，默认 `1024x1024`，宽高须为正整数。MOSS 将宽高向上对齐到 16 的倍数，直接返回完整原生图片，不裁切、不缩放；比例可能因对齐有轻微偏差。非正数在 API 层返回 400 / `param=size`。
-- `response_format` 只支持 `"b64_json"`，返回图片 Base64。
-- 错误响应为 OpenAI 标准格式：`{"error": {"message", "type", "param", "code"}}`；401 为 `authentication_error`，400 为 `invalid_request_error`，500 为 `server_error`。
+## 实现与验证
 
-## 代码风格
-尽量做最小改动，保持文件局部风格一致。Python 使用 `snake_case`，常量使用全大写。新增调试优先用 `ic(...)`，不要扩散 `print(...)`。
-
-## 测试要求
-改动后至少运行：
-
-- `python -m py_compile images_api.py images_app.py`
-- 如涉及 MOSS：验证权重加载、采样和尺寸处理逻辑。
-- 如涉及 `images_api.py`：跑本地 TestClient 验证鉴权、错误格式与路由（含 `model` 分发）。
-- 如涉及部署：`modal deploy images_app.py`
-- 如涉及接口行为：用最小尺寸请求做 smoke test。
-- 临时测试、对比、测量脚本和中间输出用完即删除，不提交到仓库；文档中不保留已删除脚本的引用。
-
-## 安全与许可
-不要提交 `.env`、`.dev.vars`、HF token、Modal token 或任何密钥。
+- 代码保持简洁高效易懂，直接按内部接口约定调用，不添加推测性的兜底、重复检查或备用路径。
+- 保留外部输入校验、鉴权和下载权重的完整性校验。
+- 改动后执行语法检查；涉及 API 时验证鉴权、错误和模型分发。
+- 涉及模型时验证加载、采样和尺寸处理；涉及部署时实际部署并做小尺寸线上验证。
+- 临时测试、对比、测量脚本和中间输出用完即删除，不提交；文档不保留已删除脚本的引用。
+- 不提交 `.env`、HF token、Modal token 或密钥。
+- 观澜 `sampling.py` 改编自 ComfyUI，保留 GPL-3.0 归属和根目录 `LICENSE-ComfyUI.txt`。
