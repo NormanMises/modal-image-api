@@ -1,26 +1,20 @@
 """统一的 Modal 部署：一个 App、一个 FastAPI 应用、多个生图模型端点。
 
 - ``images_api.create_images_app`` 提供共享的 OpenAI Images 兼容 web 接口。
-- ``zimage_loader.ZImageBackend`` 封装 Z-Image 系列的加载/生成（含 ComfyUI checkpoint 注入）。
-- Z-Image 家族由 ``Z_IMAGE_MODELS`` spec 表驱动，工厂按 spec 生成各模型 cls。
+- ``zimage_loader.ZImageBackend`` 封装 Z-Image-Turbo 的加载与生成。
 - 部署：``modal deploy images_app.py``
 """
-
-from dataclasses import dataclass
 
 import modal
 
 from images_api import ImagesMeta, create_images_app
-from zimage_loader import Z_IMAGE_STEPS, CheckpointSpec, ZImageBackend
+from zimage_loader import ZImageBackend
 
 
 CACHE_DIR = "/cache"
 Z_IMAGE_REPO = "Tongyi-MAI/Z-Image-Turbo"
 Z_IMAGE_COMMIT = "26f23eda626ffadda020b04ff79488e1d72004cd"
 Z_IMAGE_DIR = f"{CACHE_DIR}/Z-Image-Turbo"
-DBZ_REPO = "GuangyuanSD/REDCraft-DarkBeast-Z-Image-TURBO"
-DBZ_FILENAME = "DarkBeast-ZImageTurbo/DarkBeastZ8-SDA@Fok-BF16-ComfyUI.safetensors"
-DBZ6_FILENAME = "DarkBeast-ZImageTurbo/DarkBeastZ6-BlitZ-BF16-ComfyUI.safetensors"
 
 
 app = modal.App("images-api")
@@ -67,45 +61,15 @@ z_image_image = (
     .add_local_file("zimage_loader.py", remote_path="/root/zimage_loader.py")
 )
 
-@dataclass(frozen=True)
-class ZModelSpec:
-    id: str
-    owned_by: str
-    checkpoint: CheckpointSpec | None = None
-    steps: int = Z_IMAGE_STEPS
-
-
-Z_IMAGE_MODELS = [
-    ZModelSpec("z-image-turbo", "Tongyi-MAI"),
-    ZModelSpec("dbz8-sda", "AiMetatron", CheckpointSpec(DBZ_REPO, DBZ_FILENAME)),
-    ZModelSpec("dbz6", "AiMetatron", CheckpointSpec(DBZ_REPO, DBZ6_FILENAME)),
-]
-
-
-def make_zimage_cls(spec: ZModelSpec):
-    """按 spec 动态生成一个 Z-Image 模型 cls（每个一个独立 GPU 容器）。"""
-    name = "".join(p.capitalize() for p in spec.id.split("-")) + "Model"
-
+@app.cls(image=z_image_image, gpu="L40S", volumes={CACHE_DIR: z_image_cache})
+class ZImageTurboModel:
     @modal.enter()
     def load_model(self):
-        self.backend = ZImageBackend(
-            model_dir=Z_IMAGE_DIR,
-            repo_id=Z_IMAGE_REPO,
-            checkpoint=spec.checkpoint,
-            steps=spec.steps,
-        )
+        self.backend = ZImageBackend(model_dir=Z_IMAGE_DIR, repo_id=Z_IMAGE_REPO)
 
     @modal.method()
     def generate(self, prompt: str, width: int, height: int) -> list[str]:
         return self.backend.generate(prompt, width, height)
-
-    cls = type(name, (), {"load_model": load_model, "generate": generate})
-    cls = app.cls(image=z_image_image, gpu="L40S", volumes={CACHE_DIR: z_image_cache})(cls)
-    globals()[name] = cls  # Modal 运行时要按名字从模块里取 cls
-    return cls
-
-
-Z_IMAGE_CLS = {spec.id: make_zimage_cls(spec) for spec in Z_IMAGE_MODELS}
 
 
 @app.cls(
@@ -135,16 +99,13 @@ web_app = create_images_app(
         "kook-moss-guanlan": lambda prompt, width, height: KookMossGuanlan().generate.remote.aio(
             prompt=prompt, width=width, height=height
         ),
-        **{
-            mid: (lambda prompt, width, height, cls=cls: cls().generate.remote.aio(
-                prompt=prompt, width=width, height=height
-            ))
-            for mid, cls in Z_IMAGE_CLS.items()
-        },
+        "z-image-turbo": lambda prompt, width, height: ZImageTurboModel().generate.remote.aio(
+            prompt=prompt, width=width, height=height
+        ),
     },
     metas={
         "kook-moss-guanlan": ImagesMeta(model="kook-moss-guanlan", owned_by="KookYan"),
-        **{spec.id: ImagesMeta(model=spec.id, owned_by=spec.owned_by) for spec in Z_IMAGE_MODELS},
+        "z-image-turbo": ImagesMeta(model="z-image-turbo", owned_by="Tongyi-MAI"),
     },
 )
 

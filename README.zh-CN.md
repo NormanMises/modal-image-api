@@ -7,7 +7,6 @@
 | `model` id | 模型 | 后端 |
 |---|---|---|
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image 原生 PyTorch |
-| `dbz8-sda` | [Dark Beast DBZiT8 SDA@FOK](https://civarchive.com/models/2242173?modelVersionId=2774410) | Z-Image Turbo 微调（原生） |
 | `kook-moss-guanlan` | [KOOK 观澜](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 观澜使用独立 L40S 容器及 `moss-image-sft-cache` Volume，底模为
@@ -48,7 +47,7 @@ python3.12 -m venv .venv
 
 本地 Python 版本只需要满足 Modal CLI 的要求。部署到 Modal 的远端运行镜像内部使用 Python 3.13（Z-Image 模型）和 3.12（MOSS）。
 
-Z-Image-Turbo 及其微调模型是公开模型，不需要 Hugging Face token。
+Z-Image-Turbo 是公开模型，不需要 Hugging Face token。
 
 ## 部署
 
@@ -120,7 +119,7 @@ curl "$BASE_URL/images/generations" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dbz8-sda",
+    "model": "z-image-turbo",
     "prompt": "a bold typographic poster",
     "size": "1024x1024",
     "response_format": "b64_json"
@@ -129,7 +128,7 @@ curl "$BASE_URL/images/generations" \
 
 请求字段：
 
-- `model`：必填，取 `z-image-turbo` / `dbz8-sda` / `dbz6` / `kook-moss-guanlan` 之一
+- `model`：必填，取 `z-image-turbo` / `kook-moss-guanlan` 之一
 - `prompt`：必填的文本提示词
 - `size`：`WIDTHxHEIGHT`，默认 `1024x1024`
 - `response_format`：只支持 `b64_json`
@@ -153,7 +152,7 @@ client = OpenAI(
 )
 
 result = client.images.generate(
-    model="dbz8-sda",
+    model="z-image-turbo",
     prompt="a bold typographic poster",
     size="1024x1024",
     response_format="b64_json",

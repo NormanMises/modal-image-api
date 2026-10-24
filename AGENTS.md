@@ -4,8 +4,8 @@
 一个 Modal App（`images_app.py`）里一个 FastAPI 应用 + 多个生图模型端点，共用 OpenAI Images 兼容接口。
 
 - `images_api.py`：共享的 OpenAI Images 兼容 web 接口（鉴权、OpenAI 标准错误、`/v1/models` 与生成路由）。`create_images_app(models, metas)` 按请求里的 `model` 字段分发到对应模型。
-- `zimage_loader.py`：Z-Image 系列模型的加载与生成后端（`ZImageBackend`），含 ComfyUI checkpoint → 原生权重的转换（`CheckpointSpec`）。
-- `images_app.py`：统一部署入口。Z-Image 家族由 `Z_IMAGE_MODELS` spec 表驱动（工厂按 spec 生成 cls）。
+- `zimage_loader.py`：Z-Image-Turbo 模型的加载与生成后端（`ZImageBackend`）。
+- `images_app.py`：统一部署入口，显式注册 Z-Image-Turbo 和观澜两个模型容器。
 - `moss_loader.py`：MOSS-Image-SFT + 观澜 LoRA，固定底模版本并校验 LoRA SHA256，严格匹配并合并全部 PEFT 权重。
 - `comfy_moss_sampling.py`：ComfyUI ER-SDE/simple 的 MOSS flow 适配；跳层区间按 sigma 判断，送入官方 Transformer 的时间步需乘 1000。该文件遵循 GPL-3.0，保留第三方许可。
 - 真实密钥放在 Modal Secret 中，不要提交。
@@ -34,7 +34,7 @@
 }
 ```
 
-- `model` 为必填，取值见 `GET /v1/models`（`z-image-turbo` / `dbz8-sda` / `dbz6` / `kook-moss-guanlan`）。
+- `model` 为必填，取值见 `GET /v1/models`（`z-image-turbo` / `kook-moss-guanlan`）。
 - 每个请求固定生成一张图片；不传 `n`、`steps`、`quality` 或 `seed`。
 - `size` 为 `WIDTHxHEIGHT`，默认 `1024x1024`，宽高须为正整数。MOSS 将宽高向上对齐到 16 的倍数，直接返回完整原生图片，不裁切、不缩放；比例可能因对齐有轻微偏差。非正数在 API 层返回 400 / `param=size`。
 - `response_format` 只支持 `"b64_json"`，返回图片 Base64。

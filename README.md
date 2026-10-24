@@ -7,7 +7,6 @@ Deploy a unified OpenAI-compatible image API on [Modal](https://modal.com/) serv
 | `model` id | Model | Backend |
 |---|---|---|
 | `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image native PyTorch |
-| `dbz8-sda` | [Dark Beast DBZiT8 SDA@FOK](https://civarchive.com/models/2242173?modelVersionId=2774410) | Z-Image Turbo fine-tune (native) |
 | `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
 
 Guanlan uses a separate L40S container and the `moss-image-sft-cache` volume.
@@ -51,7 +50,7 @@ The service provides:
 
 The local Python version only needs to be supported by the Modal CLI. The deployed containers use Python 3.13 (Z-Image models) and 3.12 (MOSS) internally.
 
-Z-Image-Turbo and its fine-tunes are public and do not require a Hugging Face token.
+Z-Image-Turbo is public and do not require a Hugging Face token.
 
 ## Deploy
 
@@ -123,7 +122,7 @@ curl "$BASE_URL/images/generations" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dbz8-sda",
+    "model": "z-image-turbo",
     "prompt": "a bold typographic poster",
     "size": "1024x1024",
     "response_format": "b64_json"
@@ -132,7 +131,7 @@ curl "$BASE_URL/images/generations" \
 
 The request fields are:
 
-- `model`: required, one of `z-image-turbo`, `dbz8-sda`, `dbz6`, `kook-moss-guanlan`
+- `model`: required, one of `z-image-turbo`, `kook-moss-guanlan`
 - `prompt`: required text prompt
 - `size`: `WIDTHxHEIGHT`, default `1024x1024`
 - `response_format`: `b64_json`
@@ -156,7 +155,7 @@ client = OpenAI(
 )
 
 result = client.images.generate(
-    model="dbz8-sda",
+    model="z-image-turbo",
     prompt="a bold typographic poster",
     size="1024x1024",
     response_format="b64_json",
