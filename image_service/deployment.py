@@ -2,12 +2,14 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from time import perf_counter
 
 import modal
 
 from .contracts import ImageBackend, ModelInfo
 from .registry import ModelEndpoint, ModelRegistry
 from .storage import model_cache
+from .timing import log_timing, request_id
 
 
 def with_source(image: modal.Image) -> modal.Image:
@@ -27,13 +29,23 @@ class ModelWorker(ABC):
 
     @modal.enter()
     def load_model(self):
+        started = perf_counter()
         self.backend = self.create_backend()
         self.backend.load(self.cache_dir)
+        log_timing("backend_load", started, cache_dir=self.cache_dir)
+        started = perf_counter()
         model_cache.commit()
+        log_timing("cache_commit", started, cache_dir=self.cache_dir)
 
     @modal.method()
-    def generate(self, prompt: str, width: int, height: int) -> list[str]:
-        return self.backend.generate(prompt, width, height)
+    def generate(self, prompt: str, width: int, height: int, trace_id: str) -> list[str]:
+        token = request_id.set(trace_id)
+        started = perf_counter()
+        try:
+            return self.backend.generate(prompt, width, height)
+        finally:
+            log_timing("worker_generate", started, cache_dir=self.cache_dir, width=width, height=height)
+            request_id.reset(token)
 
 
 @dataclass(frozen=True)
@@ -45,7 +57,7 @@ class ModelDeployment:
     def endpoint(self) -> ModelEndpoint:
         async def generate(prompt: str, width: int, height: int) -> list[str]:
             return await self.worker().generate.remote.aio(
-                prompt=prompt, width=width, height=height
+                prompt=prompt, width=width, height=height, trace_id=request_id.get()
             )
 
         return ModelEndpoint(self.info, generate)

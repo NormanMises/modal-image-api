@@ -29,11 +29,12 @@ prompt goes directly to text encoding. The negative prompt is
 `worst quality, bad anatomy, watermark, jpeg artifact` (without `nsfw`). The sampling
 seed changes for each request. CFG, skip-layer guidance, prompt enhancement,
 model precision, and LoRA loading customize the official ComfyUI template.
-Any positive integer dimensions are accepted. MOSS rounds its
-generation dimensions up to multiples of 16 and returns the complete native image,
-without cropping or resizing. The aspect ratio may change slightly due to alignment.
-For example, `941x1672` generates and returns `944x1680`.
-Aligned sizes pass through unchanged; non-positive sizes return HTTP 400 / `param: "size"`.
+Any positive integer dimensions are accepted. MOSS uses the requested aspect ratio
+to set generation dimensions to at least 1.5 megapixels, rounding each dimension
+up to a multiple of 16. This applies to both small and large inputs.
+For example, `1024x1024` generates `1232x1232`, and `1080x1920` generates `928x1648`.
+Alignment may slightly change the aspect ratio. The complete native image is returned;
+there is no post-generation crop or resize. Non-positive sizes return HTTP 400 / `param: "size"`.
 ComfyUI manages model memory. Modal resources, idle scaling, and tokenizer
 parallelism use their defaults. ComfyUI listens only on the container loopback
 interface; clients continue using the existing OpenAI-compatible API. Generated

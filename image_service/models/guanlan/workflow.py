@@ -2,10 +2,11 @@
 
 import copy
 import json
+from math import ceil
 from pathlib import Path
 import secrets
 
-from .config import CFG, ENABLE_PROMPT_ENHANCER, ENABLE_SLG, LORA_STRENGTH, MODEL_FILES, MOSS_NEGATIVE_PROMPT
+from .config import CFG, ENABLE_PROMPT_ENHANCER, ENABLE_SLG, LORA_STRENGTH, MODEL_FILES, MOSS_NEGATIVE_PROMPT, TARGET_PIXELS
 
 
 def load_workflow() -> dict:
@@ -36,9 +37,10 @@ def load_workflow() -> dict:
 def generation_workflow(workflow: dict, prompt: str, width: int, height: int) -> dict:
     workflow = copy.deepcopy(workflow)
     workflow["18:17"]["inputs"]["value"] = prompt
+    scale = (TARGET_PIXELS / (width * height)) ** 0.5
     workflow["18:6"]["inputs"].update(
-        width=((width + 15) // 16) * 16,
-        height=((height + 15) // 16) * 16,
+        width=ceil(width * scale / 16) * 16,
+        height=ceil(height * scale / 16) * 16,
     )
     workflow["18:7"]["inputs"]["seed"] = secrets.randbits(63)
     return workflow

@@ -9,12 +9,14 @@
 import hmac
 import os
 import time
+import uuid
 
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .registry import ModelRegistry
+from .timing import log_timing, request_id
 
 
 class OpenAIError(Exception):
@@ -149,12 +151,22 @@ def create_images_app(registry: ModelRegistry) -> FastAPI:
         if response_format != "b64_json":
             raise invalid_request("response_format only supports b64_json.", param="response_format")
 
+        token = request_id.set(uuid.uuid4().hex)
+        started = time.perf_counter()
+        fields = {"model": model_id, "width": width, "height": height}
         try:
             images_b64 = await endpoint.generate(prompt.strip(), width, height)
+            log_timing("remote_generate", started, **fields)
+            response_started = time.perf_counter()
+            response = build_image_response(images_b64)
+            log_timing("response_serialize", response_started, response_bytes=len(response.body), **fields)
+            response.headers["x-request-id"] = request_id.get()
+            return response
         except Exception as exc:
             print(f"image generation failed: {exc!r}")
             raise server_error("Image generation failed.") from exc
-
-        return build_image_response(images_b64)
+        finally:
+            log_timing("api_handler", started, **fields)
+            request_id.reset(token)
 
     return web_app

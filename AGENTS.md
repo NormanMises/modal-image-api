@@ -36,7 +36,7 @@
 - 客户端使用 `Authorization: Bearer <API_KEY>`；密钥放在 Modal Secret `image-api-auth`。
 - `model` 必填，取值来自 catalog 注册的模型，具体列表由 `/v1/models` 返回。
 - `prompt` 必填；`size` 默认 `1024x1024`，宽高为正整数。
-- 观澜宽高向上对齐到 16 的倍数，返回完整原生图片，不裁切、不缩放。
+- 观澜按输入宽高比将生成尺寸统一换算到 150 万像素，宽高向上对齐到 16 的倍数，确保至少 150 万像素；返回完整原生图片，生成后不裁切、不缩放。
 - 每请求一张图；`response_format` 只支持 `b64_json`。不提供 n、steps、quality 或 seed。
 - OpenAI 标准错误格式；400 `invalid_request_error`，401 `authentication_error`，500 `server_error`。
 
