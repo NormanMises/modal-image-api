@@ -1,263 +1,244 @@
-# Modal Image Model API
+# Modal image API
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Deploy image generation models on [Modal](https://modal.com/) behind an OpenAI-compatible Images API.
-Each model owns its inference code, runtime dependencies, and GPU settings.
-Weights share one `image-model-cache` Volume, with a separate directory per model.
-Add models through the catalog while reusing the shared API and deployment entry.
+Deploy image generation models on [Modal](https://modal.com/) with an OpenAI-compatible Images API.
+Each model has its own GPU container and inference dependencies. All models share one API and one weight cache Volume.
 
-Included model integrations:
+## Supported models
 
-| `model` id | Model | Backend |
-|---|---|---|
-| `z-image-turbo` | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Z-Image native PyTorch |
-| `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | MOSS-Image-SFT + LoRA |
+| API model ID | Model | Runtime |
+| --- | --- | --- |
+| `z-image-turbo` | [Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Native PyTorch |
+| `kook-moss-guanlan` | [KOOK Guanlan](https://www.modelscope.cn/models/KookYan/Kook_Moss_SFT_guanlan) | ComfyUI, MOSS-Image-SFT + Guanlan LoRA |
 
-Guanlan uses a separate L40S container and the `kook-moss-guanlan/` directory in the shared `image-model-cache` Volume.
-ComfyUI and the [official `image_moss_image_t2i.json` template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_moss_image_t2i.json)
-are pinned to commits. The container runs ComfyUI itself with custom nodes disabled.
-The official API-export graph uses native loaders, text generation/encoding,
-`KSampler`, VAE decoding, and image output nodes. The model and text encoder are
-`moss_image_sft_bf16.safetensors` and `qwen3.5_9b_bf16.safetensors`; the VAE remains
-`flux2-vae_small.safetensors`. The verified Guanlan LoRA is applied by the native
-`LoraLoaderModelOnly` node at strength 1.
-
-The workflow uses 25 steps, CFG 3, and `er_sde / simple`. Skip-layer guidance is
-enabled for layer 22 over 0–0.5. Prompt enhancement is disabled; the original
-prompt goes directly to text encoding. The negative prompt is
-`worst quality, bad anatomy, watermark, jpeg artifact` (without `nsfw`). The sampling
-seed changes for each request. CFG, skip-layer guidance, prompt enhancement,
-model precision, and LoRA loading customize the official ComfyUI template.
-Any positive integer dimensions are accepted. MOSS uses the requested aspect ratio
-to set generation dimensions to at least 1.5 megapixels, rounding each dimension
-up to a multiple of 16. This applies to both small and large inputs.
-For example, `1024x1024` generates `1232x1232`, and `1080x1920` generates `928x1648`.
-Alignment may slightly change the aspect ratio. The complete native image is returned;
-there is no post-generation crop or resize. Non-positive sizes return HTTP 400 / `param: "size"`.
-ComfyUI manages model memory. Modal resources, idle scaling, and tokenizer
-parallelism use their defaults. ComfyUI listens only on the container loopback
-interface; clients continue using the existing OpenAI-compatible API. Generated
-PNG files and completed request history are deleted after returning the images.
-The first request downloads the base model.
-
-On macOS, use a local virtual environment:
-
-```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install 'modal[api-proxy-support]' fastapi
-.venv/bin/modal token new
-.venv/bin/modal deploy images_app.py
-```
-
-Select `"model": "kook-moss-guanlan"` using the existing endpoint and API key.
-
-The service provides:
-
-- `GET /v1/models` — lists all registered models
-- `POST /v1/images/generations` — generates one image per request, returned as Base64 JSON
-- Model dispatch via the required `model` request field
-- OpenAI-standard error format: `{"error": {"message", "type", "param", "code"}}`
-
-## Requirements
-
-- A Modal account with GPU access
-- Modal CLI
-
-The local Python version only needs to be supported by the Modal CLI. The deployed containers use Python 3.13 (Z-Image models) and 3.12 (MOSS) internally.
-
-Z-Image-Turbo is public and does not require a Hugging Face token.
+Both models use L40S GPUs. Each request generates one PNG and returns it as Base64 JSON.
+For MOSS, `size` sets the aspect ratio. The service calculates generation dimensions near 1.5MP and rounds both dimensions up to multiples of 16, so the image has at least 1,500,000 pixels.
+For example, `1080x1920` produces `928x1648`. Alignment may slightly change the aspect ratio. The service returns the native image without cropping or resizing it afterward.
 
 ## Deploy
 
-Install and authenticate the Modal CLI:
+Use Python 3.12 and a Modal account with GPU access. Run these commands from the repository root.
 
-```bash
-python -m pip install modal
-modal setup
-```
+1. Install the dependencies and sign in to Modal.
 
-Create the Secret used by the API:
+   ```bash
+   pip install -r requirements.txt
+   modal token new
+   ```
 
-```bash
-modal secret create image-api-auth API_KEY=replace-with-a-long-random-secret
-```
+2. Create the API authentication Secret.
 
-The Secret must contain `API_KEY`. Keep the real value out of Git and out of browser code.
+   ```bash
+   modal secret create image-api-auth API_KEY=replace-with-a-long-random-secret
+   ```
 
-`API_KEY` is the key that API clients send in `Authorization: Bearer ...`. It is separate from your Modal login token.
+   Clients use this `API_KEY` as their Bearer token. It is separate from your Modal login token. Keep the real key out of Git and client-side browser code.
 
-Deploy from the repository root:
+3. Deploy the service.
 
-```bash
-modal deploy images_app.py
-```
+   ```bash
+   modal deploy images_app.py
+   ```
 
-Modal builds each model image from its own `deployment.py`; `images_app.py` composes the model Apps and the lightweight API and prints the application URL. Add `/v1` to that URL to get the API base URL:
+Add `/v1` to the URL printed by Modal to get your API base URL.
+The first GPU container downloads its model weights. Later containers reuse the cached files.
 
-```text
-https://your-modal-app.modal.run/v1
-```
+## Generate an image
 
-All model weights live in one Modal Volume, `image-model-cache`, mounted at `/cache`.
-Each model uses `/cache/<model_id>` (for example, `/cache/z-image-turbo` and
-`/cache/kook-moss-guanlan`). Later containers reuse the cached weights.
-
-## Structure
-
-```text
-images_app.py                   # Deploy entry: compose models and the CPU API
-image_service/
-  api.py                        # HTTP input, authentication, errors, responses
-  contracts.py                  # ImageBackend abstract interface and metadata
-  registry.py                   # Model metadata and callable in one registry
-  deployment.py                 # ModelWorker base, App composition, remote calls
-  catalog.py                    # Enabled model deployments
-  config.py                     # Shared App and authentication Secret names
-  encoding.py                   # PNG / Base64 serialization
-  comfy.py                      # Internal ComfyUI server and workflow execution
-  storage.py                    # One shared model-weight Volume
-  models/
-    z_image/
-      config.py                 # Identity, source pin, generation defaults
-      deployment.py             # Dependencies, GPU, Volume, load/generate lifecycle
-      backend.py                # Native Z-Image loading and inference
-    guanlan/
-      config.py
-      deployment.py
-      backend.py                # Prepare weights and execute the native workflow
-      lora.py                   # LoRA download and SHA256 verification
-      workflow.py               # Official graph with BF16 loaders and LoRA wiring
-```
-
-Both backends initialize inside their GPU container startup hook. Z-Image loads
-its model directly; Guanlan starts ComfyUI, which loads and caches models through
-the native workflow nodes. The API image installs FastAPI only; each GPU image installs
-its own inference dependencies. All imports outside container startup are lightweight.
-Existing App, worker, and endpoint names remain stable.
-
-## Adding a model
-
-1. Add `image_service/models/<name>/` with an `__init__.py`, `config.py`, `backend.py`,
-   and `deployment.py`. Keep inference imports inside backend loading/generation.
-2. Subclass `ImageBackend` from `image_service.contracts`. Implement
-   `load(cache_dir: str) -> None` and `generate(prompt: str, width: int, height: int) -> list[str]`.
-   Loading happens once per container; generation returns Base64 PNGs. Reuse
-   `image_service.encoding.image_to_base64` for serialization.
-3. In `deployment.py`, define the model's `modal.App` and image. Subclass the shared
-   `ModelWorker`, set `cache_dir`, and implement `create_backend() -> ImageBackend`
-   with a lazy import and `return Backend()`. The base provides startup loading,
-   cache commit, and the remote `generate` method. Export `ModelDeployment(app, MODEL_INFO, Worker)`. Use a unique worker class
-   name and `with_source(image)` to include the local package. Limit each GPU
-   container to one generation at a time; scale with more containers. Mount
-   `image_service.storage.model_cache` at `CACHE_ROOT` and use `model_cache_dir(MODEL_INFO.id)`
-   from the shared config for the model's cache directory.
-4. Add the deployment to `MODEL_DEPLOYMENTS` in `image_service/catalog.py`.
-   Metadata, `/v1/models`, and generation routing use that same registration.
-5. Run the local check and `modal deploy images_app.py`.
-
-Shared service names are in `image_service/config.py`; the shared authentication
-Secret is `image-api-auth`, independent of the enabled models.
-
-For model settings, edit its `config.py`; for dependencies, GPU resources, or idle
-scaling, edit its `deployment.py`. No API or other model changes are needed.
-The package composition follows [Modal's project structure guide](https://modal.com/docs/guide/project-structure).
-
-## Authentication
-
-Send the Secret value in the standard OpenAI header:
-
-```http
-Authorization: Bearer your-api-key
-```
-
-## API
-
-Set the URL and key in your shell:
+Set your deployment URL and key.
 
 ```bash
 export BASE_URL="https://your-modal-app.modal.run/v1"
 export API_KEY="your-api-key"
 ```
 
-List available models:
+List the available models with `GET /v1/models`.
 
 ```bash
-curl "$BASE_URL/models" \
-  -H "Authorization: Bearer $API_KEY"
+curl "$BASE_URL/models" -H "Authorization: Bearer $API_KEY"
 ```
 
-Generate an image:
+Generate an image with `POST /v1/images/generations`. Change `model` to select a different model.
 
 ```bash
 curl "$BASE_URL/images/generations" \
-  -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "z-image-turbo",
-    "prompt": "a bold typographic poster",
-    "size": "1024x1024",
+    "model": "kook-moss-guanlan",
+    "prompt": "a red ceramic cup on a wooden table, natural daylight",
+    "size": "1080x1920",
     "response_format": "b64_json"
   }'
 ```
 
-The request fields are:
+The image is in `data[0].b64_json`. Successful generation responses include an `x-request-id` header for finding the request in the logs.
 
-- `model`: required, choose an ID returned by `GET /v1/models`
-- `prompt`: required text prompt
-- `size`: `WIDTHxHEIGHT`, default `1024x1024`
-- `response_format`: `b64_json`
+<details>
+<summary>Request fields, responses, and errors</summary>
 
-The endpoint always generates one image. It does not expose `n`, `steps`, `quality`, or `seed`. Size handling is delegated to each model's inference implementation.
+| Field | Required | Behavior |
+| --- | --- | --- |
+| `model` | Yes | Use an ID returned by `/v1/models`. |
+| `prompt` | Yes | A non-empty text prompt. |
+| `size` | No | `WIDTHxHEIGHT`, with positive integers. Defaults to `1024x1024`. MOSS converts this to its generation dimensions as described above. Z-Image passes it to the native inference code. |
+| `response_format` | No | Only `b64_json` is supported. |
 
-Errors follow the OpenAI format; status codes are 400 `invalid_request_error`, 401 `authentication_error`, 500 `server_error`.
+Each request generates one image. The API does not expose `n`, `steps`, `quality`, or `seed` controls.
 
-Use the OpenAI Python client if you prefer an SDK:
-
-```bash
-python -m pip install openai
+```json
+{
+  "created": 1790000000,
+  "data": [{"b64_json": "<base64-encoded PNG>"}]
+}
 ```
 
+Errors use the OpenAI format.
+
+```json
+{
+  "error": {
+    "message": "prompt must be a non-empty string.",
+    "type": "invalid_request_error",
+    "param": "prompt",
+    "code": null
+  }
+}
+```
+
+Invalid inputs return HTTP 400, invalid credentials return 401, and server failures return 500.
+
+</details>
+
+<details>
+<summary>Use the OpenAI Python client and save the image</summary>
+
+The client is included in `requirements.txt`. The example uses the environment variables above.
+
 ```python
+import base64
+import os
+from pathlib import Path
+
 from openai import OpenAI
 
-client = OpenAI(
-    api_key="your-api-key",
-    base_url="https://your-modal-app.modal.run/v1",
-)
-
+client = OpenAI(api_key=os.environ["API_KEY"], base_url=os.environ["BASE_URL"])
 result = client.images.generate(
-    model="z-image-turbo",
-    prompt="a bold typographic poster",
+    model="kook-moss-guanlan",
+    prompt="a red ceramic cup on a wooden table, natural daylight",
     size="1024x1024",
     response_format="b64_json",
 )
+Path("image.png").write_bytes(base64.b64decode(result.data[0].b64_json))
 ```
 
-## Image and model weights
+MOSS generates `1232x1232` for this square request.
 
-The repository defines the Modal Images in Python and pins the Z-Image source dependency to a tested commit. Each Modal workspace builds the images from those definitions.
+</details>
 
-The model weights stay in the shared Modal Volume rather than in the images. This keeps image builds smaller and lets new containers reuse the cached weights.
+## Model settings
 
-For other image workflows, see the [Modal existing images guide](https://modal.com/docs/guide/existing-images).
+Sampling settings live in each model's code. Clients select the model, prompt, and aspect ratio through the API.
 
-## Local check
+<details>
+<summary>MOSS Guanlan weights and workflow settings</summary>
+
+Guanlan runs ComfyUI with custom nodes disabled. It uses the API-export graph of the official `image_moss_image_t2i.json` template, adapted for the following weights and settings. ComfyUI, the template, and the model files use the revisions in [config.py](image_service/models/guanlan/config.py).
+
+| Setting | Value |
+| --- | --- |
+| Base model | `moss_image_sft_bf16.safetensors` |
+| Text encoder | `qwen3.5_9b_bf16.safetensors` |
+| VAE | `flux2-vae_small.safetensors` |
+| Guanlan LoRA | Native `LoraLoaderModelOnly` node, strength `1.0`, SHA256-verified download |
+| Steps | `25` |
+| CFG | `3.0` |
+| Sampler / scheduler | `er_sde` / `simple` |
+| Skip-layer guidance | Enabled, layer `22`, range `0` to `0.5` |
+| Prompt enhancement | Disabled. The original prompt goes to text encoding. |
+| Negative prompt | `worst quality, bad anatomy, watermark, jpeg artifact` |
+| Seed | Random for each request |
+| Generation dimensions | Target `1,500,000` pixels, then round each dimension up to a multiple of `16` |
+
+BF16 in the filenames describes the weights. ComfyUI chooses runtime precision through its default policy; the text encoder currently runs in FP16.
+Workflow wiring and size conversion are in [workflow.py](image_service/models/guanlan/workflow.py). Some sampling values come from the pinned template rather than local configuration constants.
+
+</details>
+
+<details>
+<summary>Z-Image-Turbo settings</summary>
+
+Z-Image uses its native PyTorch inference code, with BF16 weights, 8 steps, guidance `0.0`, and `_native_flash` attention by default. Compilation is disabled.
+See [config.py](image_service/models/z_image/config.py) and [backend.py](image_service/models/z_image/backend.py).
+
+</details>
+
+## Development and operation
+
+<details>
+<summary>Project structure and adding a model</summary>
+
+```text
+images_app.py                  Deployment entry for the CPU API and model Apps
+image_service/
+  api.py                       HTTP validation, authentication, and responses
+  contracts.py                 ImageBackend interface and model metadata
+  registry.py                  Model metadata and generation functions
+  deployment.py                Shared ModelWorker lifecycle and Modal calls
+  catalog.py                   Enabled model deployments
+  config.py                    Shared service names and cache paths
+  storage.py                   Shared model-weight Volume
+  encoding.py                  PNG / Base64 encoding
+  timing.py                    Request IDs and structured timing logs
+  comfy.py                     Internal ComfyUI process and workflow execution
+  models/
+    z_image/                   Model config, deployment, and backend
+    guanlan/                   Model config, deployment, backend, LoRA, and workflow
+```
+
+The CPU API does not import inference frameworks. GPU containers initialize their backends at startup. Z-Image loads its weights directly; Guanlan starts ComfyUI, whose workflow nodes load the models on demand.
+
+To add a model:
+
+1. Create `image_service/models/<name>/` with `__init__.py`, `config.py`, `backend.py`, and `deployment.py`.
+2. Subclass `ImageBackend`. Implement `load(cache_dir: str) -> None` and `generate(prompt: str, width: int, height: int) -> list[str]`. Return Base64 PNGs and import inference frameworks inside the backend methods.
+3. Define the model's Modal App and image. Subclass `ModelWorker`, set `cache_dir`, and implement `create_backend()`. Use a unique worker class name, `with_source(image)`, and the shared cache Volume. Export a `ModelDeployment`.
+4. Register the deployment in `MODEL_DEPLOYMENTS` in `image_service/catalog.py`.
+5. Check the code, deploy, and verify generation.
+
+Edit a model's `config.py` for its settings and `deployment.py` for its dependencies and GPU. The shared API and other models do not need changes.
+
+</details>
+
+<details>
+<summary>Weight cache, scaling, and runtime</summary>
+
+All weights share the `image-model-cache` Modal Volume, mounted at `/cache`. Each model uses `/cache/<model_id>`. Weights stay in the Volume rather than the container image.
+
+Each GPU container handles one generation at a time. Modal starts more containers for parallel requests. Resource and idle scaling settings use Modal defaults apart from the configured image, GPU, cache mount, and `HF_HOME`.
+
+The API and MOSS images use Python 3.12; Z-Image uses Python 3.13. Local Python runs the CLI, not GPU inference.
+ComfyUI listens on `127.0.0.1:8188` inside the container. The backend reads PNG files directly, then deletes those files and the completed workflow history before returning the result.
+
+</details>
+
+<details>
+<summary>Logs and credentials</summary>
 
 ```bash
-python -m compileall -q images_app.py image_service
+modal app logs images-api
 ```
 
-## Security
+Structured entries have `event: "image_timing"`, a `stage`, and elapsed `seconds`. Generation entries share a `request_id` across the API and GPU container. Startup entries have no request ID.
 
-- Store `API_KEY` in the `image-api-auth` Modal Secret.
-- Never commit `.env`, `.dev.vars`, Modal tokens, or other credentials.
-- Rotate the key if it is exposed.
-- CORS currently allows all origins. Restrict `allow_origins` before serving untrusted browser clients.
+Logs measure backend loading, cache commit, worker generation, the API's remote call, and response serialization. MOSS also records weight preparation, ComfyUI startup, workflow preparation and queueing, execution, image reading and encoding, and cleanup. Workflow preparation logs contain the actual aligned dimensions.
+The API handler timing excludes delivery of the response to the client. Stages overlap, so do not add all durations together.
 
-## Upstream
+Store `API_KEY` in the `image-api-auth` Modal Secret. Keep credentials out of Git and rotate exposed keys. CORS currently allows all origins; browser clients should call through a server that holds the key.
 
-- [Tongyi-MAI/Z-Image](https://github.com/Tongyi-MAI/Z-Image)
-- [Z-Image-Turbo model](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
-- [Modal documentation](https://modal.com/docs)
+</details>
+
+## Upstream projects
+
+[Z-Image](https://github.com/Tongyi-MAI/Z-Image) · [ComfyUI](https://github.com/Comfy-Org/ComfyUI) · [MOSS-Image weights](https://huggingface.co/Comfy-Org/MOSS-Image) · [Official MOSS template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_moss_image_t2i.json) · [Modal documentation](https://modal.com/docs)
